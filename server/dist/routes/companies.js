@@ -160,6 +160,51 @@ router.put('/users/:id/permissions', (req, res) => {
     const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
     res.json({ user: updated });
 });
+// PUT /api/users/:id — edit user (username/password)
+router.put('/users/:id', (req, res) => {
+    const db = (0, db_1.getDb)();
+    const targetId = Number(req.params.id);
+    // Can't modify your own username (prevents lockout)
+    if (targetId === req.user.id) {
+        res.status(400).json({ error: '不能修改自己的用户名' });
+        return;
+    }
+    const targetUser = db.prepare('SELECT id, company_id, role FROM users WHERE id = ?').get(targetId);
+    if (!targetUser) {
+        res.status(404).json({ error: '用户不存在' });
+        return;
+    }
+    // super_admin can edit anyone
+    // company_admin can only edit regular users in their own company
+    if (req.user.role !== 'super_admin') {
+        if (req.user.company_id !== targetUser.company_id) {
+            res.status(403).json({ error: '无权修改其他公司的用户' });
+            return;
+        }
+        if (targetUser.role !== 'user') {
+            res.status(403).json({ error: '只能修改普通用户' });
+            return;
+        }
+    }
+    const { username, password } = req.body;
+    if (username) {
+        // Check for duplicate username
+        const existing = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, targetId);
+        if (existing) {
+            res.status(409).json({ error: '用户名已存在' });
+            return;
+        }
+        db.prepare('UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(username, targetId);
+    }
+    if (password) {
+        const password_hash = bcryptjs_1.default.hashSync(password, 10);
+        db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(password_hash, targetId);
+    }
+    const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
+    res.json({ user: updated });
+});
 // DELETE /api/users/:id — delete user
 router.delete('/users/:id', (req, res) => {
     const db = (0, db_1.getDb)();

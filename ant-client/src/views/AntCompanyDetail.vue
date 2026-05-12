@@ -25,17 +25,18 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'role'">
-            <a-tag :color="record.role === 'company_admin' ? 'orange' : 'blue'">
+            <a-tag :color="record.role === 'super_admin' ? 'red' : (record.role === 'company_admin' ? 'orange' : 'blue')">
               {{ roleLabel(record.role) }}
             </a-tag>
           </template>
           <template v-if="column.key === 'permissions'">
-            <span v-if="record.role !== 'user'" style="color: #999">全部权限</span>
+            <span v-if="record.role !== 'user' && record.role !== 'super_admin'" style="color: #999">全部权限</span>
             <a-tag v-else v-for="p in parsePerms(record.permissions)" :key="p" color="blue" style="margin: 1px">
               {{ permLabel(p) }}
             </a-tag>
           </template>
           <template v-if="column.key === 'action'">
+            <a-button type="link" size="small" @click="editUser(record)">编辑</a-button>
             <a-button
               v-if="record.role === 'user'"
               type="link"
@@ -97,6 +98,25 @@
       <a-checkbox-group v-model:value="permEditUserPerms">
         <a-checkbox v-for="p in allPermissions" :key="p.key" :value="p.key">{{ p.label }}</a-checkbox>
       </a-checkbox-group>
+    </a-modal>
+
+    <!-- Edit user modal -->
+    <a-modal
+      v-model:open="showEditUserDialog"
+      title="编辑用户"
+      @ok="saveEditUser"
+      :confirm-loading="saving"
+      ok-text="保存"
+      :width="520"
+    >
+      <a-form :model="editUserForm" layout="vertical">
+        <a-form-item label="用户名">
+          <a-input v-model:value="editUserForm.username" />
+        </a-form-item>
+        <a-form-item label="新密码（留空不修改）">
+          <a-input-password v-model:value="editUserForm.password" placeholder="留空则不修改密码" />
+        </a-form-item>
+      </a-form>
     </a-modal>
   </div>
 </template>
@@ -214,19 +234,49 @@ function canDeleteUser(row: any) {
   return row.role === 'user' && row.id !== user.value.id
 }
 
-async function confirmDeleteUser(row: any) {
+// Edit user
+const showEditUserDialog = ref(false)
+const editUserForm = ref({ id: 0, username: "", password: "" })
+
+function editUser(row: any) {
+  editUserForm.value = { id: row.id, username: row.username, password: "" }
+  showEditUserDialog.value = true
+}
+
+async function saveEditUser() {
+  if (!editUserForm.value.username) {
+    message.warning("用户名不能为空")
+    return
+  }
+  saving.value = true
   try {
-    await Modal.confirm({
-      title: '确认删除',
-      content: `确定删除用户「${row.username}」？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
+    await api.put("/companies/users/" + editUserForm.value.id, {
+      username: editUserForm.value.username,
+      password: editUserForm.value.password || undefined,
     })
-    await api.delete(`/companies/users/${row.id}`)
-    message.success('删除成功')
+    message.success("更新成功")
+    showEditUserDialog.value = false
     loadUsers()
-  } catch {}
+  } catch (err: any) {
+    message.error(err.response?.data?.error || "更新失败")
+  } finally {
+    saving.value = false
+  }
+}
+
+async function confirmDeleteUser(row: any) {
+  Modal.confirm({
+    title: "确认删除",
+    content: "确定删除用户「" + row.username + "」？",
+    okText: "删除",
+    okType: "danger",
+    cancelText: "取消",
+    onOk: async () => {
+      await api.delete("/companies/users/" + row.id)
+      message.success("删除成功")
+      loadUsers()
+    },
+  })
 }
 
 function goBack() {

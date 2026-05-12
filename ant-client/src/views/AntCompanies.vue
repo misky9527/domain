@@ -114,12 +114,18 @@ async function updateCompany() {
 }
 
 async function confirmDelete(row: any) {
-  try {
-    await Modal.confirm({ title: '确认删除', content: `确定删除公司「${row.name}」？`, okText: '删除', okType: 'danger', cancelText: '取消' })
-    await api.delete(`/companies/${row.id}`)
-    message.success('删除成功')
-    loadCompanies()
-  } catch {}
+  Modal.confirm({
+    title: "确认删除",
+    content: "确定删除公司「" + row.name + "」？此操作不可撤销。",
+    okText: "删除",
+    okType: "danger",
+    cancelText: "取消",
+    onOk: async () => {
+      await api.delete("/companies/" + row.id)
+      message.success("删除成功")
+      loadCompanies()
+    },
+  })
 }
 
 function viewCompany(row: any) { router.push(`/companies/${row.id}`) }

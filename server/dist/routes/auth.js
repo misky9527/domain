@@ -157,5 +157,31 @@ router.post('/reject/:id', auth_1.authMiddleware, (req, res) => {
     db.prepare("UPDATE users SET status = 'rejected' WHERE id = ?").run(req.params.id);
     res.json({ message: `已拒绝 ${user.username} 的注册申请` });
 });
+// Change own password
+router.put('/password', auth_1.authMiddleware, (req, res) => {
+    const { old_password, new_password } = req.body;
+    if (!old_password || !new_password) {
+        res.status(400).json({ error: '旧密码和新密码不能为空' });
+        return;
+    }
+    if (new_password.length < 6) {
+        res.status(400).json({ error: '新密码至少6位' });
+        return;
+    }
+    const db = (0, db_1.getDb)();
+    const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!user) {
+        res.status(404).json({ error: '用户不存在' });
+        return;
+    }
+    if (!bcryptjs_1.default.compareSync(old_password, user.password_hash)) {
+        res.status(400).json({ error: '旧密码错误' });
+        return;
+    }
+    const password_hash = bcryptjs_1.default.hashSync(new_password, 10);
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(password_hash, req.user.id);
+    res.json({ message: '密码修改成功' });
+});
 exports.default = router;
 //# sourceMappingURL=auth.js.map

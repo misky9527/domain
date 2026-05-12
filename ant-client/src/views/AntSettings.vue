@@ -9,11 +9,26 @@
       <a-descriptions :column="1" bordered size="small">
         <a-descriptions-item label="用户名">{{ user.username }}</a-descriptions-item>
         <a-descriptions-item label="角色">
-          <a-tag :color="user.role === 'admin' ? 'red' : 'blue'">
-            {{ user.role === 'admin' ? '管理员' : '用户' }}
+          <a-tag :color="user.role === 'super_admin' ? 'red' : (user.role === 'company_admin' ? 'orange' : 'blue')">
+            {{ user.role === 'super_admin' ? '超级管理员' : (user.role === 'company_admin' ? '公司管理员' : '普通用户') }}
           </a-tag>
         </a-descriptions-item>
       </a-descriptions>
+    </a-card>
+
+    <a-card style="margin-bottom: 20px">
+      <template #title><span>修改密码</span></template>
+      <a-form :model="passwordForm" layout="vertical">
+        <a-form-item label="当前密码">
+          <a-input-password v-model:value="passwordForm.old_password" />
+        </a-form-item>
+        <a-form-item label="新密码">
+          <a-input-password v-model:value="passwordForm.new_password" />
+        </a-form-item>
+        <a-form-item>
+          <a-button type="primary" @click="changePassword" :loading="changingPwd">修改密码</a-button>
+        </a-form-item>
+      </a-form>
     </a-card>
 
     <a-card>
@@ -53,6 +68,8 @@ import { message } from 'ant-design-vue'
 
 const saving = ref(false)
 const testing = ref(false)
+const changingPwd = ref(false)
+const passwordForm = reactive({ old_password: '', new_password: '' })
 const user = ref<any>(JSON.parse(localStorage.getItem('user') || '{}'))
 const form = reactive({
   telegram_bot_token: '',
@@ -79,6 +96,31 @@ async function saveSettings() {
     message.error(err.response?.data?.error || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function changePassword() {
+  if (!passwordForm.old_password || !passwordForm.new_password) {
+    message.warning('请填写当前密码和新密码')
+    return
+  }
+  if (passwordForm.new_password.length < 6) {
+    message.warning('新密码至少6位')
+    return
+  }
+  changingPwd.value = true
+  try {
+    await api.put('/auth/password', {
+      old_password: passwordForm.old_password,
+      new_password: passwordForm.new_password,
+    })
+    message.success('密码修改成功')
+    passwordForm.old_password = ''
+    passwordForm.new_password = ''
+  } catch (err: any) {
+    message.error(err.response?.data?.error || '修改失败')
+  } finally {
+    changingPwd.value = false
   }
 }
 
