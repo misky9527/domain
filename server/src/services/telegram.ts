@@ -1,26 +1,49 @@
-import fetch from 'node-fetch';
-
-export async function sendTelegramMessage(botToken: string, chatId: string, message: string): Promise<boolean> {
-  if (!botToken || !chatId) return false;
-
-  try {
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-      }),
-      timeout: 10000,
-    });
-
-    return res.ok;
-  } catch (err) {
-    console.error('Telegram send failed:', err);
-    return false;
+// Try require for proxy agent (avoids TS moduleResolution issues)
+let proxyAgent: any = undefined;
+try {
+  const proxyUrl = process.env.TG_PROXY || '';
+  if (proxyUrl) {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    proxyAgent = new HttpsProxyAgent(proxyUrl);
   }
+} catch {}
+
+export async function sendTelegramMessage(botToken: string, chatIds: string, message: string): Promise<boolean> {
+  if (!botToken || !chatIds) return false;
+
+  // Support multiple chat IDs separated by comma or newline
+  const ids = chatIds.split(/[,\n]/).map(id => id.trim()).filter(Boolean);
+  if (ids.length === 0) return false;
+
+  let allOk = true;
+  for (let i = 0; i < ids.length; i++) {
+    const chatId = ids[i];
+    try {
+      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+      const fetchOpts: any = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'HTML',
+        }),
+        timeout: 10000,
+      };
+      if (proxyAgent) fetchOpts.agent = proxyAgent;
+      const res = await fetch(url, fetchOpts);
+      if (!res.ok) allOk = false;
+      // Delay between sends to avoid rate limiting
+      if (i < ids.length - 1) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (err) {
+      console.error('Telegram send failed to', chatId, ':', err);
+      allOk = false;
+    }
+  }
+
+  return allOk;
 }
 
 export function formatDomainReport(domains: Array<{ name: string; expiration_date: string; ssl_expiry: string }>): string {

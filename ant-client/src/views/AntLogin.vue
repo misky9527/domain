@@ -72,7 +72,6 @@
             </a-card>
 
             <div style="text-align:center;margin-top:16px">
-              <a href="http://43.165.183.130:5174" target="_blank" style="color:#999;font-size:12px">查看 Element-UI 版本 →</a>
             </div>
             <footer style="margin-top:16px;font-size:12px;color:#bbb;text-align:center">DomainManage · Ant Design 风格</footer>
           </section>

@@ -1,32 +1,55 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendTelegramMessage = sendTelegramMessage;
 exports.formatDomainReport = formatDomainReport;
-const node_fetch_1 = __importDefault(require("node-fetch"));
-async function sendTelegramMessage(botToken, chatId, message) {
-    if (!botToken || !chatId)
-        return false;
-    try {
-        const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-        const res = await (0, node_fetch_1.default)(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId,
-                text: message,
-                parse_mode: 'HTML',
-            }),
-            timeout: 10000,
-        });
-        return res.ok;
+// Try require for proxy agent (avoids TS moduleResolution issues)
+let proxyAgent = undefined;
+try {
+    const proxyUrl = process.env.TG_PROXY || '';
+    if (proxyUrl) {
+        const { HttpsProxyAgent } = require('https-proxy-agent');
+        proxyAgent = new HttpsProxyAgent(proxyUrl);
     }
-    catch (err) {
-        console.error('Telegram send failed:', err);
+}
+catch { }
+async function sendTelegramMessage(botToken, chatIds, message) {
+    if (!botToken || !chatIds)
         return false;
+    // Support multiple chat IDs separated by comma or newline
+    const ids = chatIds.split(/[,\n]/).map(id => id.trim()).filter(Boolean);
+    if (ids.length === 0)
+        return false;
+    let allOk = true;
+    for (let i = 0; i < ids.length; i++) {
+        const chatId = ids[i];
+        try {
+            const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+            const fetchOpts = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    text: message,
+                    parse_mode: 'HTML',
+                }),
+                timeout: 10000,
+            };
+            if (proxyAgent)
+                fetchOpts.agent = proxyAgent;
+            const res = await fetch(url, fetchOpts);
+            if (!res.ok)
+                allOk = false;
+            // Delay between sends to avoid rate limiting
+            if (i < ids.length - 1) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+        catch (err) {
+            console.error('Telegram send failed to', chatId, ':', err);
+            allOk = false;
+        }
     }
+    return allOk;
 }
 function formatDomainReport(domains) {
     let msg = '<b>📋 域名日报</b>\n\n';

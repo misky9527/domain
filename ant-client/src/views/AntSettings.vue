@@ -43,7 +43,14 @@
           />
         </a-form-item>
         <a-form-item label="Chat ID">
-          <a-input v-model:value="form.telegram_chat_id" placeholder="123456789" />
+          <a-select
+            v-model:value="chatIds"
+            mode="tags"
+            placeholder="输入 Chat ID 后按回车添加"
+            style="width: 100%"
+            :open="false"
+            :dropdown-match-select-width="false"
+          />
         </a-form-item>
         <a-form-item>
           <a-button type="primary" @click="saveSettings" :loading="saving">
@@ -75,12 +82,14 @@ const form = reactive({
   telegram_bot_token: '',
   telegram_chat_id: '',
 })
+const chatIds = ref<string[]>([])
 
 onMounted(async () => {
   try {
     const res = await api.get('/settings/telegram')
     form.telegram_bot_token = res.data.telegram_bot_token || ''
-    form.telegram_chat_id = res.data.telegram_chat_id || ''
+    const raw = res.data.telegram_chat_id || ''
+    chatIds.value = raw.split('\n').map((s: string) => s.trim()).filter(Boolean)
   } catch {}
 })
 
@@ -89,7 +98,7 @@ async function saveSettings() {
   try {
     await api.put('/settings/telegram', {
       telegram_bot_token: form.telegram_bot_token,
-      telegram_chat_id: form.telegram_chat_id,
+      telegram_chat_id: chatIds.value.join('\n'),
     })
     message.success('设置已保存')
   } catch (err: any) {
