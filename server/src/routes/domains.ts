@@ -5,7 +5,7 @@ import { getDb, getOrCreateDefaultGroup, getOrCreateGroup, logOperation } from '
 import { AuthRequest, authMiddleware, JWT_SECRET } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
-import { queryDnsRecords, queryNsRecords, extractNsInfo } from '../services/dns';
+import { queryDnsRecords, queryNsRecords, extractNsInfo, DNS_TYPE_MAP } from '../services/dns';
 import { checkSsl } from '../services/ssl';
 import { manualExpiryCheck } from '../services/reminder';
 import jwt from 'jsonwebtoken';
@@ -162,13 +162,36 @@ router.post('/auto-query', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const [whoisInfo, rawDnsRecords, nsRecords] = await Promise.all([
+    const [whoisInfo, nsRecords] = await Promise.all([
       queryWhois(domain).catch(() => null),
-      queryDnsRecords(domain).catch(() => []),
       queryNsRecords(domain).catch(() => []),
     ]);
 
-    // 过滤：只保留用户关心的记录类型，去掉 HINFO/RRSIG/DNSKEY 等协议元数据
+    // DNS 记录：分类型查询，避免 type=ANY 被 RFC 8482 拦截
+    const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+    const rawDnsRecords: any[] = [];
+    for (const t of recordTypes) {
+      try {
+        const url = `https://dns.google/resolve?name=${domain}&type=${t}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.Answer) {
+            rawDnsRecords.push(...data.Answer.map((r: any) => ({
+              name: r.name,
+              type: DNS_TYPE_MAP[r.type] || r.type,
+              TTL: r.TTL,
+              data: r.data,
+            })));
+          }
+        }
+      } catch {}
+    }
+
+    // 过滤：只保留用户关心的记录类型
     const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'PTR', 'CAA'];
     const dnsRecords = rawDnsRecords.filter((r: any) => userTypes.includes(r.type));
 

@@ -4,6 +4,7 @@ interface DnsRecord {
     TTL: number;
     data: string;
 }
+export declare const DNS_TYPE_MAP: Record<number, string>;
 export declare function setDbGetter(getter: () => any): void;
 /**
  * Extract NS record info from DNS records.

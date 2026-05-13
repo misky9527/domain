@@ -185,12 +185,35 @@ router.post('/auto-query', async (req, res) => {
         return;
     }
     try {
-        const [whoisInfo, rawDnsRecords, nsRecords] = await Promise.all([
+        const [whoisInfo, nsRecords] = await Promise.all([
             (0, whois_1.queryWhois)(domain).catch(() => null),
-            (0, dns_1.queryDnsRecords)(domain).catch(() => []),
             (0, dns_1.queryNsRecords)(domain).catch(() => []),
         ]);
-        // 过滤：只保留用户关心的记录类型，去掉 HINFO/RRSIG/DNSKEY 等协议元数据
+        // DNS 记录：分类型查询，避免 type=ANY 被 RFC 8482 拦截
+        const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+        const rawDnsRecords = [];
+        for (const t of recordTypes) {
+            try {
+                const url = `https://dns.google/resolve?name=${domain}&type=${t}`;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 5000);
+                const res = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.Answer) {
+                        rawDnsRecords.push(...data.Answer.map((r) => ({
+                            name: r.name,
+                            type: dns_1.DNS_TYPE_MAP[r.type] || r.type,
+                            TTL: r.TTL,
+                            data: r.data,
+                        })));
+                    }
+                }
+            }
+            catch { }
+        }
+        // 过滤：只保留用户关心的记录类型
         const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'PTR', 'CAA'];
         const dnsRecords = rawDnsRecords.filter((r) => userTypes.includes(r.type));
         // 提取 NS 服务器
