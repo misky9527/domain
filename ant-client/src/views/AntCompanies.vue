@@ -121,9 +121,13 @@ async function confirmDelete(row: any) {
     okType: "danger",
     cancelText: "取消",
     onOk: async () => {
-      await api.delete("/companies/" + row.id)
-      message.success("删除成功")
-      loadCompanies()
+      try {
+        await api.delete("/companies/" + row.id)
+        message.success("删除成功")
+        loadCompanies()
+      } catch (err: any) {
+        message.error(err.response?.data?.error || '删除失败')
+      }
     },
   })
 }
