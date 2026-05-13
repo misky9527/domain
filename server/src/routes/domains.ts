@@ -475,50 +475,54 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
     const tasks = batch.map(async (d: any) => {
       const result: any = { domain: d.name, ssl: false, whois: false, dns: false };
 
-      // SSL
-      try {
-        const sslInfo = await checkSsl(d.name);
-        db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
-          .run(sslInfo.expiry, sslInfo.issuer, d.id);
-        result.ssl = true;
-      } catch {}
-
-      // Whois
-      try {
-        const whoisInfo = await queryWhois(d.name);
-        if (whoisInfo.expiration_date || whoisInfo.registrar) {
-          db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
-            .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
-        }
-        result.whois = true;
-      } catch {}
-
-      // DNS
-      try {
-        const [dnsRecords, nsRecords] = await Promise.all([
-          queryDnsRecords(d.name),
-          queryNsRecords(d.name),
-        ]);
-        const nsInfo = extractNsInfo(nsRecords);
-        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
-          .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
-        result.dns = true;
-      } catch {}
+      // 同一域名的 SSL、Whois、DNS 并行执行
+      await Promise.all([
+        (async () => {
+          try {
+            const sslInfo = await checkSsl(d.name);
+            db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
+              .run(sslInfo.expiry, sslInfo.issuer, d.id);
+            result.ssl = true;
+          } catch {}
+        })(),
+        (async () => {
+          try {
+            const whoisInfo = await queryWhois(d.name);
+            if (whoisInfo.expiration_date || whoisInfo.registrar) {
+              db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
+                .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
+            }
+            result.whois = true;
+          } catch {}
+        })(),
+        (async () => {
+          try {
+            const [dnsRecords, nsRecords] = await Promise.all([
+              queryDnsRecords(d.name),
+              queryNsRecords(d.name),
+            ]);
+            const nsInfo = extractNsInfo(nsRecords);
+            db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+              .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
+            result.dns = true;
+          } catch {}
+        })(),
+      ]);
 
       if (result.ssl || result.whois || result.dns) success++;
       else failed++;
       result.success = result.ssl || result.whois || result.dns;
-
-      done++;
-      result.done = done;
-      result.total = total;
-
-      res.write(`data: ${JSON.stringify(result)}\n\n`);
     });
 
     await Promise.all(tasks);
+
+    // 每批完成时统一更新进度（一批一批跳，不一个一个跳）
+    done += batch.length;
+    res.write(`data: ${JSON.stringify({ batch_done: done, total, success, failed })}\n\n`);
   }
 
+  // 暂停一小段时间再发结束信号，避免浏览器 EventSource onerror 在 onmessage 之前触发
+  await new Promise(r => setTimeout(r, 100));
   res.write(`data: ${JSON.stringify({ completed: true, total, success, failed })}\n\n`);
   res.end();
 };

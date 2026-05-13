@@ -197,29 +197,7 @@
           </a-card>
         </div>
         <a-progress :percent="Math.round(updateProgress / Math.max(updateTotal, 1) * 100)" :show-info="false" />
-        <a-table
-          :data-source="liveResults"
-          :columns="updateColumns"
-          size="small"
-          :pagination="false"
-          :scroll="{ y: 300 }"
-          row-key="domain"
-          style="margin-top:12px"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'domain'">
-              <span style="font-family:monospace;font-size:12px">{{ record.domain }}</span>
-            </template>
-            <template v-if="column.key === 'detail'">
-              <a-tag v-if="record.ssl" color="green" size="small">SSL</a-tag>
-              <a-tag v-else color="red" size="small">SSL</a-tag>
-              <a-tag v-if="record.whois" color="green" size="small">Whois</a-tag>
-              <a-tag v-else color="red" size="small">Whois</a-tag>
-              <a-tag v-if="record.dns" color="green" size="small">DNS</a-tag>
-              <a-tag v-else color="red" size="small">DNS</a-tag>
-            </template>
-          </template>
-        </a-table>
+        <div style="margin-top:8px;font-size:12px;color:#999;text-align:center">每批 {{ batchSize }} 个域名并行更新中…</div>
       </div>
 
       <div v-else>
@@ -343,7 +321,9 @@ function toggleColumn(key: string) {
 
 const updateColumns = [
   { title: '域名', dataIndex: 'domain', key: 'domain', width: 200 },
-  { title: '检测', key: 'detail', width: 140 },
+  { title: 'SSL', dataIndex: 'ssl', key: 'ssl', width: 60 },
+  { title: 'Whois', dataIndex: 'whois', key: 'whois', width: 60 },
+  { title: 'DNS', dataIndex: 'dns', key: 'dns', width: 60 },
 ]
 
 onMounted(() => {
@@ -421,13 +401,12 @@ async function refreshAll() {
 const checkingExpiry = ref(false)
 const updating = ref(false)
 const updateVisible = ref(false)
-const updateResults = ref<Array<{name:string;ssl:boolean;whois:boolean;dns:boolean;error?:string}>>([])
 const updateDone = ref(false)
 const updateTotal = ref(0)
 const updateSuccess = ref(0)
 const updateFailed = ref(0)
 const updateProgress = ref(0)
-const liveResults = ref<Array<any>>([])
+const batchSize = ref(0)
 let updateEventSource: EventSource | null = null
 
 // Batch select & group
@@ -471,7 +450,6 @@ async function doBatchGroup() {
 async function updateAll() {
   updateVisible.value = true
   updateDone.value = false
-  liveResults.value = []
   updateTotal.value = 0
   updateSuccess.value = 0
   updateFailed.value = 0
@@ -486,35 +464,34 @@ async function updateAll() {
 
   updateEventSource.onmessage = (event) => {
     const data = JSON.parse(event.data)
-    // 结束信号：completed === true（布尔），逐条进度：done 是数字
+    // 结束信号
     if (data.completed) {
       updateTotal.value = data.total
       updateSuccess.value = data.success
       updateFailed.value = data.failed
       updateDone.value = true
       updating.value = false
-      updateEventSource?.close()
-      updateEventSource = null
       loadDomains()
       loadStats()
+      // 不要手动 close，等服务器自然断开
       return
     }
+    // 分批进度更新（batch_done），不是每个域名都跳
     updateTotal.value = data.total
-    updateProgress.value = data.done
-    // 使用后端返回的成功/失败标记，不用前端自行推断
-    if (data.success) { updateSuccess.value++ }
-    else { updateFailed.value++ }
-    liveResults.value.unshift(data)
+    updateProgress.value = data.batch_done
+    updateSuccess.value = data.success
+    updateFailed.value = data.failed
+    batchSize.value = 5
   }
 
   updateEventSource.onerror = () => {
+    // 已完成时忽略 error（服务器正常断开）
+    if (updateDone.value) return
     updateEventSource?.close()
     updateEventSource = null
     updating.value = false
-    if (!updateDone.value) {
-      updateDone.value = true
-      message.error('连接中断')
-    }
+    updateDone.value = true
+    message.error('连接中断')
   }
 }
 
