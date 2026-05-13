@@ -165,10 +165,12 @@ async function queryWhois() {
     saveForm.dns_ns_server = data.ns_server || ''
     saveForm.dns_ns_provider = data.ns_provider || ''
 
-    // 解析记录 — 格式化显示
+    // 解析记录 — 格式化显示（只保留常见记录类型）
     if (data.dns_records && data.dns_records.length > 0) {
       const cleanDomain = form.name.toLowerCase().replace(/^\.+|\.+$/g, '')
+      const commonTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS']
       saveForm.dns_records_text = data.dns_records
+        .filter((r: any) => commonTypes.includes(r.type))
         .map((r: any) => {
           let host = r.name.replace(/\.$/, '').toLowerCase()
           // 根域名用 @，子域名只显示前缀
