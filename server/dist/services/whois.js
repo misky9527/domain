@@ -10,7 +10,7 @@ async function queryWhois(domain) {
     const url = `https://www.rdap.net/domain/${domain}`;
     const res = await (0, node_fetch_1.default)(url, { timeout: 10000 });
     if (!res.ok) {
-        throw new Error(`RDAP 查询失败: ${res.status}`);
+        throw new Error(`Whois 查询失败 (${res.status})`);
     }
     const data = await res.json();
     const result = {

@@ -699,7 +699,51 @@ router.post('/batch-upload', requirePermission('domain:add'), upload.single('fil
   });
 });
 
-// Batch assign group
+// Check domain availability (DNS + Whois dual-check)
+router.post('/check-available', async (req: AuthRequest, res: Response) => {
+  const { domains } = req.body;
+  if (!domains || !Array.isArray(domains) || domains.length === 0) {
+    res.status(400).json({ error: '请提供域名列表' });
+    return;
+  }
+
+  const results: Array<{ domain: string; available: boolean | null; method: string; registrar?: string; expiration_date?: string }> = [];
+  
+  for (const d of domains.slice(0, 20)) {
+    // Step 1: Check DNS (fast) — NS records = definitely registered
+    try {
+      const nsRecords = await queryNsRecords(d);
+      if (nsRecords.length > 0) {
+        results.push({ domain: d, available: false, method: 'dns', registrar: nsRecords[0].data });
+        continue;
+      }
+    } catch {}
+
+    // Step 2: Check Whois (RDAP) — if returns data = registered
+    try {
+      const info = await queryWhois(d);
+      results.push({
+        domain: d,
+        available: false,
+        method: 'whois',
+        registrar: info.registrar || undefined,
+        expiration_date: info.expiration_date || undefined,
+      });
+    } catch {
+      // Both DNS and Whois failed → likely available (but not 100% guaranteed)
+      results.push({ domain: d, available: null, method: 'unknown' });
+    }
+  }
+
+  const summary = {
+    registered: results.filter(r => r.available === false).length,
+    likely_available: results.filter(r => r.available === null).length,
+  };
+
+  res.json({ results, summary });
+});
+
+// Batch assign group (LINE REPLACED BELOW)
 router.post('/batch-group', requirePermission('domain:edit'), (req: AuthRequest, res: Response) => {
   const { ids, group_id } = req.body;
   if (!ids || !Array.isArray(ids) || ids.length === 0) {

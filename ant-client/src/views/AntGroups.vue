@@ -18,18 +18,19 @@
             {{ record.created_at }}
           </template>
           <template v-if="column.key === 'action'">
-            <a-button type="link" size="small" @click="editGroup(record)">编辑</a-button>
-            <a-popconfirm
-              v-if="!record.is_default"
-              title="确定删除此分组？"
-              @confirm="deleteGroup(record)"
-              ok-text="删除"
-              ok-type="danger"
-              cancel-text="取消"
-            >
-              <a-button type="link" danger size="small">删除</a-button>
-            </a-popconfirm>
-            <a-tag v-else color="default" size="small">默认</a-tag>
+            <template v-if="!record.is_default">
+              <a-button type="link" size="small" @click="editGroup(record)">编辑</a-button>
+              <a-popconfirm
+                title="确定删除此分组？"
+                @confirm="deleteGroup(record)"
+                ok-text="删除"
+                ok-type="danger"
+                cancel-text="取消"
+              >
+                <a-button type="link" danger size="small">删除</a-button>
+              </a-popconfirm>
+            </template>
+            <a-tag v-else color="default" size="small">默认组</a-tag>
           </template>
         </template>
       </a-table>

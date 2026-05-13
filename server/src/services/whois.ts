@@ -4,6 +4,8 @@ interface WhoisInfo {
   registrar: string;
   registration_date: string;
   expiration_date: string;
+  available?: boolean;
+  raw_status?: string;
 }
 
 export async function queryWhois(domain: string): Promise<WhoisInfo> {
@@ -11,7 +13,7 @@ export async function queryWhois(domain: string): Promise<WhoisInfo> {
   const res = await fetch(url, { timeout: 10000 });
   
   if (!res.ok) {
-    throw new Error(`RDAP 查询失败: ${res.status}`);
+    throw new Error(`Whois 查询失败 (${res.status})`);
   }
 
   const data = await res.json() as any;

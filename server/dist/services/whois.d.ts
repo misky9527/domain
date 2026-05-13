@@ -2,6 +2,8 @@ interface WhoisInfo {
     registrar: string;
     registration_date: string;
     expiration_date: string;
+    available?: boolean;
+    raw_status?: string;
 }
 export declare function queryWhois(domain: string): Promise<WhoisInfo>;
 export declare function queryBatchWhois(domains: string[]): Promise<Array<{

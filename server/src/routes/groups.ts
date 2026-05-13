@@ -60,11 +60,16 @@ router.post('/', (req: AuthRequest, res: Response) => {
 router.put('/:id', (req: AuthRequest, res: Response) => {
   const { name } = req.body;
   const db = getDb();
-  const result = db.prepare('UPDATE domain_groups SET name = ? WHERE id = ? AND user_id = ?').run(name, req.params.id, req.user!.id);
-  if (result.changes === 0) {
+  const group = db.prepare('SELECT id, is_default FROM domain_groups WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as any;
+  if (!group) {
     res.status(404).json({ error: '分组不存在' });
     return;
   }
+  if (group.is_default) {
+    res.status(403).json({ error: '默认分组不可编辑' });
+    return;
+  }
+  db.prepare('UPDATE domain_groups SET name = ? WHERE id = ? AND user_id = ?').run(name, req.params.id, req.user!.id);
   res.json({ message: '更新成功' });
 });
 

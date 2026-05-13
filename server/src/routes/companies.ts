@@ -68,15 +68,35 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   res.json({ company });
 });
 
-// DELETE /api/companies/:id — delete company (super_admin only)
+// DELETE /api/companies/:id — delete company + cascaded users/domains (super_admin only)
 router.delete('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const result = db.prepare('DELETE FROM companies WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) {
+  const companyId = Number(req.params.id);
+
+  const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(companyId) as any;
+  if (!company) {
     res.status(404).json({ error: '公司不存在' });
     return;
   }
-  res.json({ message: '删除成功' });
+
+  // Get all user IDs under this company
+  const userIds = db.prepare('SELECT id FROM users WHERE company_id = ?').all(companyId) as any[];
+  const ids = userIds.map((u: any) => u.id);
+
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => '?').join(',');
+    // Delete reminder logs for these users
+    db.prepare(`DELETE FROM reminder_log WHERE user_id IN (${placeholders})`).run(...ids);
+    // Delete domains (user_id has no ON DELETE CASCADE)
+    db.prepare(`DELETE FROM domains WHERE user_id IN (${placeholders})`).run(...ids);
+    // Delete domain groups
+    db.prepare(`DELETE FROM domain_groups WHERE user_id IN (${placeholders})`).run(...ids);
+    // Delete users
+    db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...ids);
+  }
+
+  db.prepare('DELETE FROM companies WHERE id = ?').run(companyId);
+  res.json({ message: '删除成功，已清理 ' + ids.length + ' 个关联用户' });
 });
 
 // GET /api/companies/:id/users — list users in a company

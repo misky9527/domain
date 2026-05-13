@@ -116,10 +116,10 @@ function extractNsInfo(records) {
     const nsRecords = records.filter(r => r.type === 'NS' || r.type === 2);
     if (nsRecords.length === 0)
         return null;
-    // Use the first NS record
-    const ns = nsRecords[0];
-    const server = ns.data.replace(/\.$/, '').toLowerCase();
-    const provider = getDnsProvider(server);
+    // Join all NS records, use first one for provider lookup
+    const servers = nsRecords.map(ns => ns.data.replace(/\.$/, '').toLowerCase());
+    const server = servers.join(', ');
+    const provider = getDnsProvider(servers[0]);
     return { server, provider };
 }
 async function queryDnsRecords(domain) {

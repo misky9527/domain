@@ -36,6 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.refreshAllStreamHandler = void 0;
 const express_1 = require("express");
 const multer_1 = __importDefault(require("multer"));
 const XLSX = __importStar(require("xlsx"));
@@ -46,12 +47,19 @@ const whois_1 = require("../services/whois");
 const dns_1 = require("../services/dns");
 const ssl_1 = require("../services/ssl");
 const reminder_1 = require("../services/reminder");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const router = (0, express_1.Router)();
 router.use(auth_1.authMiddleware);
+// List available DNS providers for filter dropdown
+router.get('/ns-providers', (req, res) => {
+    const db = (0, db_1.getDb)();
+    const providers = db.prepare("SELECT DISTINCT dns_ns_provider FROM domains WHERE dns_ns_provider != '' AND dns_ns_provider IS NOT NULL ORDER BY dns_ns_provider").all();
+    res.json({ providers: providers.map((r) => r.dns_ns_provider) });
+});
 // List domains
 router.get('/', (req, res) => {
     const db = (0, db_1.getDb)();
-    const { search, group_id, sort_by, sort_order, page = '1', page_size = '20' } = req.query;
+    const { search, group_id, ns_provider, ns_server, sort_by, sort_order, page = '1', page_size = '20' } = req.query;
     const filter = (0, permission_1.getCompanyFilter)(req);
     const userId = req.user.id;
     let sql;
@@ -79,6 +87,14 @@ router.get('/', (req, res) => {
         sql += ' AND d.group_id = ?';
         params.push(Number(group_id));
     }
+    if (ns_provider) {
+        sql += ' AND d.dns_ns_provider = ?';
+        params.push(ns_provider);
+    }
+    if (ns_server) {
+        sql += ' AND d.dns_ns_server LIKE ?';
+        params.push(`%${ns_server}%`);
+    }
     // Count total
     const countSql = sql.replace(/SELECT d\..*? FROM/, 'SELECT COUNT(*) as total FROM');
     const total = db.prepare(countSql).get(...params).total;
@@ -94,7 +110,24 @@ router.get('/', (req, res) => {
     params.push(ps, (p - 1) * ps);
     // Don't need to parse dns_records for NS info anymore;
     // dns_ns_server and dns_ns_provider are stored as DB columns.
-    const domains = db.prepare(sql).all(...params);
+    const domains = db.prepare(sql).all(...params).map((d) => {
+        // Backfill: if NS info is missing but dns_records exists, try to extract
+        if (!d.dns_ns_server && d.dns_records && d.dns_records.length > 2) {
+            try {
+                const records = JSON.parse(d.dns_records);
+                const nsInfo = (0, dns_1.extractNsInfo)(records);
+                if (nsInfo) {
+                    d.dns_ns_server = nsInfo.server;
+                    d.dns_ns_provider = nsInfo.provider || '';
+                    // Save to DB for future reads
+                    db.prepare('UPDATE domains SET dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+                        .run(nsInfo.server, nsInfo.provider || '', d.id);
+                }
+            }
+            catch { /* ignore parse errors */ }
+        }
+        return d;
+    });
     res.json({ domains, total, page: p, page_size: ps });
 });
 // Get single domain
@@ -344,73 +377,37 @@ router.put('/:id/refresh-ssl', (0, permission_1.requirePermission)('domain:refre
         res.status(500).json({ error: err.message });
     }
 });
-// Get DNS records (require domain:view)
+// Get DNS records from DB cache (require domain:view)
 router.get('/:id/dns', (0, permission_1.requirePermission)('domain:view'), async (req, res) => {
     const db = (0, db_1.getDb)();
-    const userId = req.user.id;
-    const filter = (0, permission_1.getCompanyFilter)(req);
-    let domain;
-    if (filter.companyId === null && !filter.needsJoin) {
-        domain = db.prepare('SELECT name FROM domains WHERE id = ?').get(req.params.id);
-    }
-    else if (filter.companyId !== null && filter.needsJoin) {
-        domain = db.prepare('SELECT d.name FROM domains d LEFT JOIN users u ON d.user_id = u.id WHERE d.id = ? AND u.company_id = ?').get(req.params.id, filter.companyId);
+    const cached = db.prepare('SELECT dns_records FROM domains WHERE id = ?').get(req.params.id);
+    if (cached?.dns_records) {
+        try {
+            res.json({ records: JSON.parse(cached.dns_records) });
+        }
+        catch {
+            res.json({ records: [] });
+        }
     }
     else {
-        domain = db.prepare('SELECT name FROM domains WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-    }
-    if (!domain) {
-        res.status(404).json({ error: '域名不存在' });
-        return;
-    }
-    try {
-        const [records, nsRecords] = await Promise.all([
-            (0, dns_1.queryDnsRecords)(domain.name),
-            (0, dns_1.queryNsRecords)(domain.name),
-        ]);
-        // Save to database for caching
-        const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
-        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
-        res.json({ records });
-    }
-    catch (err) {
-        // Fall back to cached DNS records
-        const cached = db.prepare('SELECT dns_records FROM domains WHERE id = ?').get(req.params.id);
-        if (cached?.dns_records) {
-            res.json({ records: JSON.parse(cached.dns_records), cached: true });
-        }
-        else {
-            res.status(500).json({ error: err.message });
-        }
+        res.json({ records: [] });
     }
 });
-// Get SSL info (require domain:view)
+// Get SSL info from DB cache (require domain:view)
 router.get('/:id/ssl', (0, permission_1.requirePermission)('domain:view'), async (req, res) => {
     const db = (0, db_1.getDb)();
-    const userId = req.user.id;
-    const filter = (0, permission_1.getCompanyFilter)(req);
-    let domain;
-    if (filter.companyId === null && !filter.needsJoin) {
-        domain = db.prepare('SELECT name FROM domains WHERE id = ?').get(req.params.id);
-    }
-    else if (filter.companyId !== null && filter.needsJoin) {
-        domain = db.prepare('SELECT d.name FROM domains d LEFT JOIN users u ON d.user_id = u.id WHERE d.id = ? AND u.company_id = ?').get(req.params.id, filter.companyId);
-    }
-    else {
-        domain = db.prepare('SELECT name FROM domains WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-    }
+    const domain = db.prepare('SELECT ssl_expiry, ssl_issuer FROM domains WHERE id = ?').get(req.params.id);
     if (!domain) {
         res.status(404).json({ error: '域名不存在' });
         return;
     }
-    try {
-        const sslInfo = await (0, ssl_1.checkSsl)(domain.name);
-        res.json({ ssl: sslInfo });
-    }
-    catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    const ssl = domain.ssl_expiry ? {
+        expiry: domain.ssl_expiry,
+        issuer: domain.ssl_issuer || '',
+        valid: new Date(domain.ssl_expiry).getTime() > Date.now(),
+        days_remaining: Math.ceil((new Date(domain.ssl_expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+    } : null;
+    res.json({ ssl });
 });
 // Manual expiry check — send Telegram notification
 router.post('/check-expiry', async (req, res) => {
@@ -422,7 +419,86 @@ router.post('/check-expiry', async (req, res) => {
         res.json({ message: result.message, count: result.count });
     }
 });
-// Batch refresh all domain info (SSL + Whois + DNS) for current user
+// Batch refresh all domain info (SSE streaming for real-time progress)
+// NOTE: This route is registered BEFORE authMiddleware in index.ts to allow query-param token
+const refreshAllStreamHandler = async (req, res) => {
+    // Token from query param (EventSource doesn't support custom headers)
+    const token = req.query.token;
+    if (!token) {
+        res.status(401).json({ error: '未提供认证令牌' });
+        return;
+    }
+    let userId;
+    try {
+        const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
+        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        userId = decoded.id;
+    }
+    catch {
+        res.status(401).json({ error: '登录已过期' });
+        return;
+    }
+    const db = (0, db_1.getDb)();
+    const domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(userId);
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+    if (domains.length === 0) {
+        res.write(`data: ${JSON.stringify({ done: true, total: 0, success: 0, failed: 0 })}\n\n`);
+        res.end();
+        return;
+    }
+    let success = 0;
+    let failed = 0;
+    const total = domains.length;
+    for (let i = 0; i < domains.length; i++) {
+        const d = domains[i];
+        const result = { domain: d.name, ssl: false, whois: false, dns: false, done: i + 1, total };
+        // SSL
+        try {
+            const sslInfo = await (0, ssl_1.checkSsl)(d.name);
+            db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
+                .run(sslInfo.expiry, sslInfo.issuer, d.id);
+            result.ssl = true;
+        }
+        catch { }
+        // Whois
+        try {
+            const whoisInfo = await (0, whois_1.queryWhois)(d.name);
+            if (whoisInfo.expiration_date || whoisInfo.registrar) {
+                db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
+                    .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
+            }
+            result.whois = true;
+        }
+        catch { }
+        // DNS
+        try {
+            const [dnsRecords, nsRecords] = await Promise.all([
+                (0, dns_1.queryDnsRecords)(d.name),
+                (0, dns_1.queryNsRecords)(d.name),
+            ]);
+            const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+            db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+                .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
+            result.dns = true;
+        }
+        catch { }
+        if (result.ssl || result.whois || result.dns)
+            success++;
+        else
+            failed++;
+        result.success = result.ssl || result.whois || result.dns;
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+    }
+    res.write(`data: ${JSON.stringify({ done: true, total, success, failed })}\n\n`);
+    res.end();
+};
+exports.refreshAllStreamHandler = refreshAllStreamHandler;
+// Batch refresh all domain info (legacy — kept for backward compat)
 router.post('/refresh-all', async (req, res) => {
     const db = (0, db_1.getDb)();
     const domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(req.user.id);
@@ -605,7 +681,47 @@ router.post('/batch-upload', (0, permission_1.requirePermission)('domain:add'), 
         message: `导入完成：成功 ${successCount}，失败 ${failCount}，共 ${results.length} 条`,
     });
 });
-// Batch assign group
+// Check domain availability (DNS + Whois dual-check)
+router.post('/check-available', async (req, res) => {
+    const { domains } = req.body;
+    if (!domains || !Array.isArray(domains) || domains.length === 0) {
+        res.status(400).json({ error: '请提供域名列表' });
+        return;
+    }
+    const results = [];
+    for (const d of domains.slice(0, 20)) {
+        // Step 1: Check DNS (fast) — NS records = definitely registered
+        try {
+            const nsRecords = await (0, dns_1.queryNsRecords)(d);
+            if (nsRecords.length > 0) {
+                results.push({ domain: d, available: false, method: 'dns', registrar: nsRecords[0].data });
+                continue;
+            }
+        }
+        catch { }
+        // Step 2: Check Whois (RDAP) — if returns data = registered
+        try {
+            const info = await (0, whois_1.queryWhois)(d);
+            results.push({
+                domain: d,
+                available: false,
+                method: 'whois',
+                registrar: info.registrar || undefined,
+                expiration_date: info.expiration_date || undefined,
+            });
+        }
+        catch {
+            // Both DNS and Whois failed → likely available (but not 100% guaranteed)
+            results.push({ domain: d, available: null, method: 'unknown' });
+        }
+    }
+    const summary = {
+        registered: results.filter(r => r.available === false).length,
+        likely_available: results.filter(r => r.available === null).length,
+    };
+    res.json({ results, summary });
+});
+// Batch assign group (LINE REPLACED BELOW)
 router.post('/batch-group', (0, permission_1.requirePermission)('domain:edit'), (req, res) => {
     const { ids, group_id } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
