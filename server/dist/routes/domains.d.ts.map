@@ -1,1 +1,1 @@
-{"version":3,"file":"domains.d.ts","sourceRoot":"","sources":["../../src/routes/domains.ts"],"names":[],"mappings":"AAAA,OAAO,EAAU,QAAQ,EAAE,OAAO,EAAE,MAAM,SAAS,CAAC;AAYpD,QAAA,MAAM,MAAM,4CAAW,CAAC;AAgdxB,eAAO,MAAM,uBAAuB,GAAU,KAAK,OAAO,EAAE,KAAK,QAAQ,kBA+FxE,CAAC;AAsRF,eAAe,MAAM,CAAC"}
+{"version":3,"file":"domains.d.ts","sourceRoot":"","sources":["../../src/routes/domains.ts"],"names":[],"mappings":"AAAA,OAAO,EAAU,QAAQ,EAAE,OAAO,EAAE,MAAM,SAAS,CAAC;AAYpD,QAAA,MAAM,MAAM,4CAAW,CAAC;AAodxB,eAAO,MAAM,uBAAuB,GAAU,KAAK,OAAO,EAAE,KAAK,QAAQ,kBA+FxE,CAAC;AAsRF,eAAe,MAAM,CAAC"}

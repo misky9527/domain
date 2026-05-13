@@ -162,11 +162,15 @@ router.post('/auto-query', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const [whoisInfo, dnsRecords, nsRecords] = await Promise.all([
+    const [whoisInfo, rawDnsRecords, nsRecords] = await Promise.all([
       queryWhois(domain).catch(() => null),
       queryDnsRecords(domain).catch(() => []),
       queryNsRecords(domain).catch(() => []),
     ]);
+
+    // 过滤：只保留用户关心的记录类型，去掉 HINFO/RRSIG/DNSKEY 等协议元数据
+    const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'PTR', 'CAA'];
+    const dnsRecords = rawDnsRecords.filter((r: any) => userTypes.includes(r.type));
 
     // 提取 NS 服务器
     const nsInfo = extractNsInfo(nsRecords);
