@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import api from '../utils/axios'
@@ -145,7 +145,7 @@ const domain = ref<any>(null)
 const groups = ref([])
 const editMode = ref(false)
 const saving = ref(false)
-const dnsRecords = ref<Array<{ name: string; type: string; TTL?: number; data: string }>>([])
+const dnsRecords = ref([])
 const dnsLoading = ref(false)
 const dnsNsServer = ref('')
 const dnsNsProvider = ref('')
