@@ -147,13 +147,29 @@ function parseDnsRecords(text: string): Array<{ type: string; name: string; data
 async function queryWhois() {
   queryLoading.value = true
   try {
-    const res = await api.post('/domains/whois', { domain: form.name })
-    const info = res.data.info
-    saveForm.registrar = info.registrar || ''
-    saveForm.registration_date = info.registration_date || ''
-    saveForm.expiration_date = info.expiration_date || ''
+    const res = await api.post('/domains/auto-query', { domain: form.name })
+    const data = res.data
+
+    // Whois 信息
+    if (data.whois) {
+      saveForm.registrar = data.whois.registrar || ''
+      saveForm.registration_date = data.whois.registration_date || ''
+      saveForm.expiration_date = data.whois.expiration_date || ''
+    }
+
+    // DNS 信息
+    saveForm.dns_ns_server = data.ns_server || ''
+    saveForm.dns_ns_provider = data.ns_provider || ''
+
+    // 解析记录
+    if (data.dns_records && data.dns_records.length > 0) {
+      saveForm.dns_records_text = data.dns_records
+        .map((r: any) => `${r.type} ${r.name} ${r.data}`)
+        .join('\n')
+    }
+
     whoisInfo.value = true
-    message.success('查询成功')
+    message.success('查询成功，已自动填充信息')
   } catch (err: any) {
     message.error(err.response?.data?.error || '查询失败，请手动填写信息')
     whoisInfo.value = true

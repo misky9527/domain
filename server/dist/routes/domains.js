@@ -177,6 +177,45 @@ router.post('/batch-whois', async (req, res) => {
     const results = await (0, whois_1.queryBatchWhois)(domains);
     res.json({ results });
 });
+// 自动查询：Whois + DNS（NS记录 + 解析记录）一次性查完
+router.post('/auto-query', async (req, res) => {
+    const { domain } = req.body;
+    if (!domain) {
+        res.status(400).json({ error: '请提供域名' });
+        return;
+    }
+    try {
+        const [whoisInfo, dnsRecords, nsRecords] = await Promise.all([
+            (0, whois_1.queryWhois)(domain).catch(() => null),
+            (0, dns_1.queryDnsRecords)(domain).catch(() => []),
+            (0, dns_1.queryNsRecords)(domain).catch(() => []),
+        ]);
+        // 提取 NS 服务器
+        const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+        // 从 NS 服务器推断 DNS 服务商
+        let dnsProvider = '';
+        if (nsInfo?.server) {
+            // 尝试从 dns_providers 表匹配
+            try {
+                const db = (0, db_1.getDb)();
+                const provider = db.prepare("SELECT name FROM dns_providers WHERE ? LIKE '%' || REPLACE(domain, '*.', '') || '%' ORDER BY LENGTH(domain) DESC LIMIT 1").get(nsInfo.server);
+                if (provider)
+                    dnsProvider = provider.name;
+            }
+            catch { }
+        }
+        res.json({
+            domain,
+            whois: whoisInfo || {},
+            dns_records: dnsRecords,
+            ns_server: nsInfo?.server || '',
+            ns_provider: dnsProvider || nsInfo?.provider || '',
+        });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message || '查询失败' });
+    }
+});
 // Create domain (require domain:add)
 router.post('/', (0, permission_1.requirePermission)('domain:add'), async (req, res) => {
     const { name, registrar, registration_date, expiration_date, purpose, tags, group_id, dns_ns_server, dns_ns_provider, dns_records } = req.body;

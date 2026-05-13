@@ -153,6 +153,49 @@ router.post('/batch-whois', async (req: AuthRequest, res: Response) => {
   res.json({ results });
 });
 
+// 自动查询：Whois + DNS（NS记录 + 解析记录）一次性查完
+router.post('/auto-query', async (req: AuthRequest, res: Response) => {
+  const { domain } = req.body;
+  if (!domain) {
+    res.status(400).json({ error: '请提供域名' });
+    return;
+  }
+
+  try {
+    const [whoisInfo, dnsRecords, nsRecords] = await Promise.all([
+      queryWhois(domain).catch(() => null),
+      queryDnsRecords(domain).catch(() => []),
+      queryNsRecords(domain).catch(() => []),
+    ]);
+
+    // 提取 NS 服务器
+    const nsInfo = extractNsInfo(nsRecords);
+
+    // 从 NS 服务器推断 DNS 服务商
+    let dnsProvider = '';
+    if (nsInfo?.server) {
+      // 尝试从 dns_providers 表匹配
+      try {
+        const db = getDb();
+        const provider = db.prepare(
+          "SELECT name FROM dns_providers WHERE ? LIKE '%' || REPLACE(domain, '*.', '') || '%' ORDER BY LENGTH(domain) DESC LIMIT 1"
+        ).get(nsInfo.server) as any;
+        if (provider) dnsProvider = provider.name;
+      } catch {}
+    }
+
+    res.json({
+      domain,
+      whois: whoisInfo || {},
+      dns_records: dnsRecords,
+      ns_server: nsInfo?.server || '',
+      ns_provider: dnsProvider || nsInfo?.provider || '',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '查询失败' });
+  }
+});
+
 // Create domain (require domain:add)
 router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: Response) => {
   const { name, registrar, registration_date, expiration_date, purpose, tags, group_id, dns_ns_server, dns_ns_provider, dns_records } = req.body;
