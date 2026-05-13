@@ -7,3 +7,4 @@ dist/
 server/data/
 .DS_Store
 .env.secret
+server/dev-start.sh
