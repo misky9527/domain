@@ -486,7 +486,8 @@ async function updateAll() {
 
   updateEventSource.onmessage = (event) => {
     const data = JSON.parse(event.data)
-    if (data.done) {
+    // 结束信号：completed === true（布尔），逐条进度：done 是数字
+    if (data.completed) {
       updateTotal.value = data.total
       updateSuccess.value = data.success
       updateFailed.value = data.failed
@@ -500,8 +501,9 @@ async function updateAll() {
     }
     updateTotal.value = data.total
     updateProgress.value = data.done
-    updateSuccess.value = liveResults.value.filter(r => r.ssl || r.whois || r.dns).length
-    updateFailed.value = liveResults.value.filter(r => !r.ssl && !r.whois && !r.dns).length
+    // 使用后端返回的成功/失败标记，不用前端自行推断
+    if (data.success) { updateSuccess.value++ }
+    else { updateFailed.value++ }
     liveResults.value.unshift(data)
   }
 

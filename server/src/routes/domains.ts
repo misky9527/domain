@@ -459,7 +459,7 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
   });
 
   if (domains.length === 0) {
-    res.write(`data: ${JSON.stringify({ done: true, total: 0, success: 0, failed: 0 })}\n\n`);
+    res.write(`data: ${JSON.stringify({ completed: true, total: 0, success: 0, failed: 0 })}\n\n`);
     res.end();
     return;
   }
@@ -509,7 +509,7 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify(result)}\n\n`);
   }
 
-  res.write(`data: ${JSON.stringify({ done: true, total, success, failed })}\n\n`);
+  res.write(`data: ${JSON.stringify({ completed: true, total, success, failed })}\n\n`);
   res.end();
 };
 

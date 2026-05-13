@@ -454,7 +454,7 @@ const refreshAllStreamHandler = async (req, res) => {
         'X-Accel-Buffering': 'no',
     });
     if (domains.length === 0) {
-        res.write(`data: ${JSON.stringify({ done: true, total: 0, success: 0, failed: 0 })}\n\n`);
+        res.write(`data: ${JSON.stringify({ completed: true, total: 0, success: 0, failed: 0 })}\n\n`);
         res.end();
         return;
     }
@@ -501,7 +501,7 @@ const refreshAllStreamHandler = async (req, res) => {
         result.success = result.ssl || result.whois || result.dns;
         res.write(`data: ${JSON.stringify(result)}\n\n`);
     }
-    res.write(`data: ${JSON.stringify({ done: true, total, success, failed })}\n\n`);
+    res.write(`data: ${JSON.stringify({ completed: true, total, success, failed })}\n\n`);
     res.end();
 };
 exports.refreshAllStreamHandler = refreshAllStreamHandler;
