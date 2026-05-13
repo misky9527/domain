@@ -36,7 +36,6 @@ services:
   # Nginx reverse proxy
   nginx:
     image: nginx:alpine
-    user: "101:101"
     ports:
       - "5173:5173"
     volumes:
