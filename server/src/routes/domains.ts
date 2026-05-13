@@ -467,46 +467,56 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
   let success = 0;
   let failed = 0;
   const total = domains.length;
+  const batchSize = 5;
+  let done = 0;
 
-  for (let i = 0; i < domains.length; i++) {
-    const d = domains[i];
-    const result: any = { domain: d.name, ssl: false, whois: false, dns: false, done: i + 1, total };
+  for (let i = 0; i < domains.length; i += batchSize) {
+    const batch = domains.slice(i, i + batchSize);
+    const tasks = batch.map(async (d: any) => {
+      const result: any = { domain: d.name, ssl: false, whois: false, dns: false };
 
-    // SSL
-    try {
-      const sslInfo = await checkSsl(d.name);
-      db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
-        .run(sslInfo.expiry, sslInfo.issuer, d.id);
-      result.ssl = true;
-    } catch {}
+      // SSL
+      try {
+        const sslInfo = await checkSsl(d.name);
+        db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
+          .run(sslInfo.expiry, sslInfo.issuer, d.id);
+        result.ssl = true;
+      } catch {}
 
-    // Whois
-    try {
-      const whoisInfo = await queryWhois(d.name);
-      if (whoisInfo.expiration_date || whoisInfo.registrar) {
-        db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
-          .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
-      }
-      result.whois = true;
-    } catch {}
+      // Whois
+      try {
+        const whoisInfo = await queryWhois(d.name);
+        if (whoisInfo.expiration_date || whoisInfo.registrar) {
+          db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
+            .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
+        }
+        result.whois = true;
+      } catch {}
 
-    // DNS
-    try {
-      const [dnsRecords, nsRecords] = await Promise.all([
-        queryDnsRecords(d.name),
-        queryNsRecords(d.name),
-      ]);
-      const nsInfo = extractNsInfo(nsRecords);
-      db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
-        .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
-      result.dns = true;
-    } catch {}
+      // DNS
+      try {
+        const [dnsRecords, nsRecords] = await Promise.all([
+          queryDnsRecords(d.name),
+          queryNsRecords(d.name),
+        ]);
+        const nsInfo = extractNsInfo(nsRecords);
+        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+          .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
+        result.dns = true;
+      } catch {}
 
-    if (result.ssl || result.whois || result.dns) success++;
-    else failed++;
-    result.success = result.ssl || result.whois || result.dns;
+      if (result.ssl || result.whois || result.dns) success++;
+      else failed++;
+      result.success = result.ssl || result.whois || result.dns;
 
-    res.write(`data: ${JSON.stringify(result)}\n\n`);
+      done++;
+      result.done = done;
+      result.total = total;
+
+      res.write(`data: ${JSON.stringify(result)}\n\n`);
+    });
+
+    await Promise.all(tasks);
   }
 
   res.write(`data: ${JSON.stringify({ completed: true, total, success, failed })}\n\n`);
