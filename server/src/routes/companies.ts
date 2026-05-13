@@ -68,35 +68,35 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
   res.json({ company });
 });
 
-// DELETE /api/companies/:id — delete company + cascaded users/domains (super_admin only)
+// DELETE /api/companies/:id — delete company (super_admin only, must be empty first)
 router.delete('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
   const db = getDb();
   const companyId = Number(req.params.id);
 
-  const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(companyId) as any;
+  const company = db.prepare('SELECT id, name FROM companies WHERE id = ?').get(companyId) as any;
   if (!company) {
     res.status(404).json({ error: '公司不存在' });
     return;
   }
 
-  // Get all user IDs under this company
-  const userIds = db.prepare('SELECT id FROM users WHERE company_id = ?').all(companyId) as any[];
-  const ids = userIds.map((u: any) => u.id);
+  // Check that company has no users
+  const userCount = (db.prepare('SELECT COUNT(*) as cnt FROM users WHERE company_id = ?').get(companyId) as any).cnt;
+  if (userCount > 0) {
+    res.status(409).json({ error: '该公司下还有 ' + userCount + ' 个用户，请先删除所有用户后再删除公司' });
+    return;
+  }
 
-  if (ids.length > 0) {
-    const placeholders = ids.map(() => '?').join(',');
-    // Delete reminder logs for these users
-    db.prepare(`DELETE FROM reminder_log WHERE user_id IN (${placeholders})`).run(...ids);
-    // Delete domains (user_id has no ON DELETE CASCADE)
-    db.prepare(`DELETE FROM domains WHERE user_id IN (${placeholders})`).run(...ids);
-    // Delete domain groups
-    db.prepare(`DELETE FROM domain_groups WHERE user_id IN (${placeholders})`).run(...ids);
-    // Delete users
-    db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...ids);
+  // Check that company has no domains (via user links — though users are 0, double-check domains directly)
+  const domainCount = (db.prepare(
+    'SELECT COUNT(*) as cnt FROM domains d INNER JOIN users u ON d.user_id = u.id WHERE u.company_id = ?'
+  ).get(companyId) as any).cnt;
+  if (domainCount > 0) {
+    res.status(409).json({ error: '该公司下还有 ' + domainCount + ' 个域名，请先删除所有域名后再删除公司' });
+    return;
   }
 
   db.prepare('DELETE FROM companies WHERE id = ?').run(companyId);
-  res.json({ message: '删除成功，已清理 ' + ids.length + ' 个关联用户' });
+  res.json({ message: '公司「' + company.name + '」删除成功' });
 });
 
 // GET /api/companies/:id/users — list users in a company
