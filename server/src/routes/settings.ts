@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db';
+import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/permission';
 import { sendTelegramMessage } from '../services/telegram';
@@ -23,6 +23,7 @@ router.put('/telegram', requirePermission('setting:telegram'), (req: AuthRequest
   const db = getDb();
   db.prepare('UPDATE users SET telegram_bot_token = ?, telegram_chat_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .run(telegram_bot_token || '', telegram_chat_id || '', req.user!.id);
+  logOperation(req.user!.id, req.user!.username, 'update', 'user', req.user!.id, req.user!.username, '修改 Telegram 通知设置');
   res.json({ message: '设置已保存' });
 });
 

@@ -22,6 +22,7 @@ router.put('/telegram', (0, permission_1.requirePermission)('setting:telegram'),
     const db = (0, db_1.getDb)();
     db.prepare('UPDATE users SET telegram_bot_token = ?, telegram_chat_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
         .run(telegram_bot_token || '', telegram_chat_id || '', req.user.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'user', req.user.id, req.user.username, '修改 Telegram 通知设置');
     res.json({ message: '设置已保存' });
 });
 // Test Telegram

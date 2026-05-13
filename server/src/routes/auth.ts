@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDb } from '../db';
+import { getDb, logOperation } from '../db';
 import { AuthRequest, generateToken, authMiddleware } from '../middleware/auth';
 
 const router = Router();
@@ -51,6 +51,9 @@ router.post('/register', (req: AuthRequest, res: Response) => {
 
   const userId = result.lastInsertRowid as number;
   const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyResult.lastInsertRowid) as any;
+
+  logOperation(userId, username, 'create', 'company', company.id, company_name);
+  logOperation(userId, username, 'create', 'user', userId, username);
 
   res.status(201).json({
     message: '注册成功，请等待管理员审核',
@@ -158,6 +161,7 @@ router.post('/approve/:id', authMiddleware, (req: AuthRequest, res: Response) =>
   }
 
   db.prepare("UPDATE users SET status = 'approved' WHERE id = ?").run(req.params.id);
+  logOperation(req.user!.id, req.user!.username, 'update', 'user', user.id, user.username, '审核通过');
   res.json({ message: `已通过 ${user.username} 的注册申请` });
 });
 
@@ -180,6 +184,7 @@ router.post('/reject/:id', authMiddleware, (req: AuthRequest, res: Response) => 
   }
 
   db.prepare("UPDATE users SET status = 'rejected' WHERE id = ?").run(req.params.id);
+  logOperation(req.user!.id, req.user!.username, 'delete', 'user', user.id, user.username, '审核拒绝');
   res.json({ message: `已拒绝 ${user.username} 的注册申请` });
 });
 

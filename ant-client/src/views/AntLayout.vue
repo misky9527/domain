@@ -23,10 +23,10 @@
         <a-menu :selected-keys="[currentRoute]" mode="inline" theme="dark" @click="handleMenuClick">
           <a-menu-item key="/"><DashboardOutlined /><span>总览</span></a-menu-item>
           <a-menu-item key="/groups"><FolderOutlined /><span>分组管理</span></a-menu-item>
-          <a-menu-item key="/settings"><SettingOutlined /><span>设置</span></a-menu-item>
           <a-menu-item v-if="isAdmin" key="/companies"><BankOutlined /><span>公司管理</span></a-menu-item>
           <a-menu-item v-if="isSuperAdmin" key="/approvals"><CheckCircleOutlined /><span>注册审核</span></a-menu-item>
           <a-menu-item v-if="isSuperAdmin" key="/dns-providers"><GlobalOutlined /><span>DNS 服务商</span></a-menu-item>
+          <a-menu-item key="/settings"><SettingOutlined /><span>设置维护</span></a-menu-item>
         </a-menu>
       </a-layout-sider>
 
@@ -103,10 +103,12 @@ const tabTitles: Record<string, string> = {
   '/domains/add': '添加域名',
   '/domains/batch': '批量导入',
   '/groups': '分组管理',
-  '/settings': '设置',
+  '/settings': '设置维护',
   '/companies': '公司管理',
   '/approvals': '注册审核',
   '/dns-providers': 'DNS 服务商',
+  '/settings/orphans': '孤悬用户管理',
+  '/settings/logs': '操作日志',
 }
 
 function getTabTitle(path: string): string {

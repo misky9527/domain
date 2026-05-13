@@ -118,6 +118,22 @@ function initSchema() {
   db.prepare(
     "UPDATE domains SET dns_ns_provider = '' WHERE dns_ns_provider IS NULL"
   ).run();
+
+  // Operation logs table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS operation_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id INTEGER,
+      target_name TEXT DEFAULT '',
+      details TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_operation_logs_created ON operation_logs(created_at DESC);
+  `);
 }
 
 /**
@@ -140,6 +156,13 @@ export function getOrCreateGroup(userId: number, name: string): number {
   if (existing) return existing.id;
   const result = db.prepare('INSERT INTO domain_groups (user_id, name) VALUES (?, ?)').run(userId, name);
   return result.lastInsertRowid as number;
+}
+
+export function logOperation(userId: number, username: string, action: string, targetType: string, targetId?: number, targetName?: string, details?: string) {
+  const db = getDb();
+  db.prepare(
+    'INSERT INTO operation_logs (user_id, username, action, target_type, target_id, target_name, details) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(userId, username, action, targetType, targetId || null, targetName || '', details || '');
 }
 
 export default getDb;

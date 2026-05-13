@@ -47,6 +47,7 @@ const settings_1 = __importDefault(require("./routes/settings"));
 const companies_1 = __importDefault(require("./routes/companies"));
 const dashboard_1 = __importDefault(require("./routes/dashboard"));
 const dns_providers_1 = __importDefault(require("./routes/dns-providers"));
+const admin_1 = __importDefault(require("./routes/admin"));
 const telegram_1 = require("./services/telegram");
 const reminder_1 = require("./services/reminder");
 const dns_1 = require("./services/dns");
@@ -72,6 +73,7 @@ app.use('/api/settings', settings_1.default);
 app.use('/api/companies', companies_1.default);
 app.use('/api/dashboard', dashboard_1.default);
 app.use('/api/dns-providers', dns_providers_1.default);
+app.use('/api/admin', admin_1.default);
 // Health check
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });

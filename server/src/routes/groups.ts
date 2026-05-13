@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db';
+import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { getCompanyFilter } from '../middleware/permission';
 
@@ -52,7 +52,8 @@ router.post('/', (req: AuthRequest, res: Response) => {
 
   const db = getDb();
   const result = db.prepare('INSERT INTO domain_groups (user_id, name) VALUES (?, ?)').run(req.user!.id, name);
-  const group = db.prepare('SELECT * FROM domain_groups WHERE id = ?').get(result.lastInsertRowid);
+  const group = db.prepare('SELECT * FROM domain_groups WHERE id = ?').get(result.lastInsertRowid) as any;
+  logOperation(req.user!.id, req.user!.username, 'create', 'group', group.id, name);
   res.status(201).json({ group });
 });
 
@@ -70,6 +71,7 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
     return;
   }
   db.prepare('UPDATE domain_groups SET name = ? WHERE id = ? AND user_id = ?').run(name, req.params.id, req.user!.id);
+  logOperation(req.user!.id, req.user!.username, 'update', 'group', group.id, name);
   res.json({ message: '更新成功' });
 });
 
@@ -93,6 +95,7 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     res.status(404).json({ error: '分组不存在' });
     return;
   }
+  logOperation(req.user!.id, req.user!.username, 'delete', 'group', Number(req.params.id), group.name);
   res.json({ message: '删除成功' });
 });
 

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db';
+import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 
 const router = Router();
@@ -37,7 +37,8 @@ router.post('/', (req: AuthRequest, res: Response) => {
   }
 
   const result = db.prepare('INSERT INTO dns_providers (domain, name) VALUES (?, ?)').run(cleanDomain, name.trim());
-  const provider = db.prepare('SELECT * FROM dns_providers WHERE id = ?').get(result.lastInsertRowid);
+  const provider = db.prepare('SELECT * FROM dns_providers WHERE id = ?').get(result.lastInsertRowid) as any;
+  logOperation(req.user!.id, req.user!.username, 'create', 'dns_provider', provider.id, name.trim());
   res.status(201).json({ provider });
 });
 
@@ -72,7 +73,8 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
       .run((name || '').trim(), req.params.id);
   }
 
-  const provider = db.prepare('SELECT * FROM dns_providers WHERE id = ?').get(req.params.id);
+  const provider = db.prepare('SELECT * FROM dns_providers WHERE id = ?').get(req.params.id) as any;
+  logOperation(req.user!.id, req.user!.username, 'update', 'dns_provider', provider.id, provider.domain);
   res.json({ provider });
 });
 
@@ -84,11 +86,13 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
   }
 
   const db = getDb();
+  const provider = db.prepare('SELECT domain FROM dns_providers WHERE id = ?').get(req.params.id) as any;
   const result = db.prepare('DELETE FROM dns_providers WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     res.status(404).json({ error: '记录不存在' });
     return;
   }
+  logOperation(req.user!.id, req.user!.username, 'delete', 'dns_provider', Number(req.params.id), provider?.domain || '');
   res.json({ message: '删除成功' });
 });
 

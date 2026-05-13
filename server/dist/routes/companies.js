@@ -50,6 +50,7 @@ router.post('/', (0, permission_1.requireRole)('super_admin'), (req, res) => {
     const db = (0, db_1.getDb)();
     const result = db.prepare('INSERT INTO companies (name) VALUES (?)').run(name);
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'create', 'company', company.id, name);
     res.status(201).json({ company });
 });
 // PUT /api/companies/:id — edit company (super_admin only)
@@ -62,6 +63,7 @@ router.put('/:id', (0, permission_1.requireRole)('super_admin'), (req, res) => {
         return;
     }
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'company', company.id, company.name);
     res.json({ company });
 });
 // DELETE /api/companies/:id — delete company (super_admin only, must be empty first)
@@ -86,6 +88,7 @@ router.delete('/:id', (0, permission_1.requireRole)('super_admin'), (req, res) =
         return;
     }
     db.prepare('DELETE FROM companies WHERE id = ?').run(companyId);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'delete', 'company', companyId, company.name);
     res.json({ message: '公司「' + company.name + '」删除成功' });
 });
 // GET /api/companies/:id/users — list users in a company
@@ -139,6 +142,7 @@ router.post('/:id/users', (req, res) => {
     const permsJson = permissions ? JSON.stringify(permissions) : '[]';
     const result = db.prepare('INSERT INTO users (username, password_hash, role, company_id, permissions) VALUES (?, ?, ?, ?, ?)').run(username, password_hash, role, companyId, permsJson);
     const user = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(result.lastInsertRowid);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'create', 'user', user.id, username);
     res.status(201).json({ user });
 });
 // PUT /api/users/:id/permissions — modify user permissions
@@ -172,6 +176,7 @@ router.put('/users/:id/permissions', (req, res) => {
     db.prepare('UPDATE users SET permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
         .run(permsJson, targetId);
     const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'user', targetId, updated.username, '修改权限: ' + (permissions ? JSON.stringify(permissions) : '清空'));
     res.json({ user: updated });
 });
 // PUT /api/users/:id — edit user (username/password)
@@ -217,6 +222,7 @@ router.put('/users/:id', (req, res) => {
             .run(password_hash, targetId);
     }
     const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'user', targetId, updated.username, '编辑用户信息');
     res.json({ user: updated });
 });
 // DELETE /api/users/:id — delete user
@@ -246,6 +252,7 @@ router.delete('/users/:id', (req, res) => {
         }
     }
     db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'delete', 'user', targetId, targetUser.username);
     res.json({ message: '删除成功' });
 });
 exports.default = router;

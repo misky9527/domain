@@ -48,6 +48,7 @@ router.post('/', (req, res) => {
     const db = (0, db_1.getDb)();
     const result = db.prepare('INSERT INTO domain_groups (user_id, name) VALUES (?, ?)').run(req.user.id, name);
     const group = db.prepare('SELECT * FROM domain_groups WHERE id = ?').get(result.lastInsertRowid);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'create', 'group', group.id, name);
     res.status(201).json({ group });
 });
 // Update group
@@ -64,6 +65,7 @@ router.put('/:id', (req, res) => {
         return;
     }
     db.prepare('UPDATE domain_groups SET name = ? WHERE id = ? AND user_id = ?').run(name, req.params.id, req.user.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'group', group.id, name);
     res.json({ message: '更新成功' });
 });
 // Delete group
@@ -86,6 +88,7 @@ router.delete('/:id', (req, res) => {
         res.status(404).json({ error: '分组不存在' });
         return;
     }
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'delete', 'group', Number(req.params.id), group.name);
     res.json({ message: '删除成功' });
 });
 exports.default = router;

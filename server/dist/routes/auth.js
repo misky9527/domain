@@ -43,6 +43,8 @@ router.post('/register', (req, res) => {
     const result = db.prepare('INSERT INTO users (username, password_hash, role, company_id, status) VALUES (?, ?, ?, ?, ?)').run(username, password_hash, 'company_admin', companyResult.lastInsertRowid, 'pending');
     const userId = result.lastInsertRowid;
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyResult.lastInsertRowid);
+    (0, db_1.logOperation)(userId, username, 'create', 'company', company.id, company_name);
+    (0, db_1.logOperation)(userId, username, 'create', 'user', userId, username);
     res.status(201).json({
         message: '注册成功，请等待管理员审核',
         pending: true,
@@ -136,6 +138,7 @@ router.post('/approve/:id', auth_1.authMiddleware, (req, res) => {
         return;
     }
     db.prepare("UPDATE users SET status = 'approved' WHERE id = ?").run(req.params.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'user', user.id, user.username, '审核通过');
     res.json({ message: `已通过 ${user.username} 的注册申请` });
 });
 // [Super Admin] Reject registration
@@ -155,6 +158,7 @@ router.post('/reject/:id', auth_1.authMiddleware, (req, res) => {
         return;
     }
     db.prepare("UPDATE users SET status = 'rejected' WHERE id = ?").run(req.params.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'delete', 'user', user.id, user.username, '审核拒绝');
     res.json({ message: `已拒绝 ${user.username} 的注册申请` });
 });
 // Change own password

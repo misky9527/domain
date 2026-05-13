@@ -199,6 +199,7 @@ router.post('/', (0, permission_1.requirePermission)('domain:add'), async (req, 
                 .run(sslInfo.expiry, sslInfo.issuer, result.lastInsertRowid);
         }).catch(() => { });
     }
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'create', 'domain', domain.id, name);
     res.status(201).json({ domain });
 });
 // Batch create domains
@@ -267,6 +268,10 @@ router.post('/batch', (0, permission_1.requirePermission)('domain:add'), async (
     }
     const taskList = sslTasks.map(t => () => t);
     await runConcurrent(taskList, 5);
+    const successNames = results.filter(r => r.success).map(r => r.name);
+    if (successNames.length > 0) {
+        (0, db_1.logOperation)(req.user.id, req.user.username, 'create', 'domain', undefined, successNames.join(', '), `批量创建 ${successNames.length} 个域名`);
+    }
     res.status(201).json({ results });
 });
 // Update domain (require domain:edit)
@@ -291,6 +296,7 @@ router.put('/:id', (0, permission_1.requirePermission)('domain:edit'), (req, res
     const { registrar, registration_date, expiration_date, purpose, tags, group_id } = req.body;
     db.prepare('UPDATE domains SET registrar=?, registration_date=?, expiration_date=?, purpose=?, tags=?, group_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '', group_id || null, req.params.id);
     const updated = db.prepare('SELECT d.*, dg.name as group_name FROM domains d LEFT JOIN domain_groups dg ON d.group_id = dg.id WHERE d.id = ?').get(req.params.id);
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'domain', updated.id, updated.name);
     res.json({ domain: updated });
 });
 // Delete domain (require domain:delete)
@@ -312,6 +318,7 @@ router.delete('/:id', (0, permission_1.requirePermission)('domain:delete'), (req
         res.status(404).json({ error: '域名不存在' });
         return;
     }
+    (0, db_1.logOperation)(req.user.id, req.user.username, 'delete', 'domain', Number(req.params.id), undefined, '删除域名');
     res.json({ message: '删除成功' });
 });
 // Refresh DNS (require domain:refresh-dns)
@@ -564,6 +571,9 @@ router.post('/refresh-all', async (req, res) => {
             }
         }
     }
+    if (success > 0) {
+        (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'domain', undefined, undefined, `批量刷新 ${success} 个域名的信息`);
+    }
     res.json({
         results,
         total: domains.length,
@@ -747,6 +757,9 @@ router.post('/batch-group', (0, permission_1.requirePermission)('domain:edit'), 
         }
         const result = db.prepare(sql).run(...params);
         count += result.changes;
+    }
+    if (count > 0) {
+        (0, db_1.logOperation)(req.user.id, req.user.username, 'update', 'domain', undefined, undefined, `批量修改 ${count} 个域名的分组`);
     }
     res.json({ updated: count, message: `已更新 ${count} 个域名的分组` });
 });

@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
-import { getDb, getOrCreateDefaultGroup, getOrCreateGroup } from '../db';
+import { getDb, getOrCreateDefaultGroup, getOrCreateGroup, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
@@ -182,6 +182,7 @@ router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: 
     }).catch(() => {});
   }
 
+  logOperation(req.user!.id, req.user!.username, 'create', 'domain', (domain as any).id, name);
   res.status(201).json({ domain });
 });
 
@@ -252,6 +253,10 @@ router.post('/batch', requirePermission('domain:add'), async (req: AuthRequest, 
   const taskList = sslTasks.map(t => () => t);
   await runConcurrent(taskList, 5);
 
+  const successNames = results.filter(r => r.success).map(r => r.name);
+  if (successNames.length > 0) {
+    logOperation(req.user!.id, req.user!.username, 'create', 'domain', undefined, successNames.join(', '), `批量创建 ${successNames.length} 个域名`);
+  }
   res.status(201).json({ results });
 });
 
@@ -282,7 +287,8 @@ router.put('/:id', requirePermission('domain:edit'), (req: AuthRequest, res: Res
     'UPDATE domains SET registrar=?, registration_date=?, expiration_date=?, purpose=?, tags=?, group_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
   ).run(registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '', group_id || null, req.params.id);
 
-  const updated = db.prepare('SELECT d.*, dg.name as group_name FROM domains d LEFT JOIN domain_groups dg ON d.group_id = dg.id WHERE d.id = ?').get(req.params.id);
+  const updated = db.prepare('SELECT d.*, dg.name as group_name FROM domains d LEFT JOIN domain_groups dg ON d.group_id = dg.id WHERE d.id = ?').get(req.params.id) as any;
+  logOperation(req.user!.id, req.user!.username, 'update', 'domain', updated.id, updated.name);
   res.json({ domain: updated });
 });
 
@@ -307,6 +313,7 @@ router.delete('/:id', requirePermission('domain:delete'), (req: AuthRequest, res
     res.status(404).json({ error: '域名不存在' });
     return;
   }
+  logOperation(req.user!.id, req.user!.username, 'delete', 'domain', Number(req.params.id), undefined, '删除域名');
   res.json({ message: '删除成功' });
 });
 
@@ -571,6 +578,9 @@ router.post('/refresh-all', async (req: AuthRequest, res: Response) => {
     }
   }
 
+  if (success > 0) {
+    logOperation(req.user!.id, req.user!.username, 'update', 'domain', undefined, undefined, `批量刷新 ${success} 个域名的信息`);
+  }
   res.json({
     results,
     total: domains.length,
@@ -773,6 +783,9 @@ router.post('/batch-group', requirePermission('domain:edit'), (req: AuthRequest,
     count += result.changes;
   }
 
+  if (count > 0) {
+    logOperation(req.user!.id, req.user!.username, 'update', 'domain', undefined, undefined, `批量修改 ${count} 个域名的分组`);
+  }
   res.json({ updated: count, message: `已更新 ${count} 个域名的分组` });
 });
 

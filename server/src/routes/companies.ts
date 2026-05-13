@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDb } from '../db';
+import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requireRole, requirePermission, getCompanyFilter } from '../middleware/permission';
 
@@ -51,7 +51,8 @@ router.post('/', requireRole('super_admin'), (req: AuthRequest, res: Response) =
 
   const db = getDb();
   const result = db.prepare('INSERT INTO companies (name) VALUES (?)').run(name);
-  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid);
+  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(result.lastInsertRowid) as any;
+  logOperation(req.user!.id, req.user!.username, 'create', 'company', company.id, name);
   res.status(201).json({ company });
 });
 
@@ -64,7 +65,8 @@ router.put('/:id', requireRole('super_admin'), (req: AuthRequest, res: Response)
     res.status(404).json({ error: '公司不存在' });
     return;
   }
-  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id) as any;
+  logOperation(req.user!.id, req.user!.username, 'update', 'company', company.id, company.name);
   res.json({ company });
 });
 
@@ -96,6 +98,7 @@ router.delete('/:id', requireRole('super_admin'), (req: AuthRequest, res: Respon
   }
 
   db.prepare('DELETE FROM companies WHERE id = ?').run(companyId);
+  logOperation(req.user!.id, req.user!.username, 'delete', 'company', companyId, company.name);
   res.json({ message: '公司「' + company.name + '」删除成功' });
 });
 
@@ -165,7 +168,8 @@ router.post('/:id/users', (req: AuthRequest, res: Response) => {
 
   const user = db.prepare(
     'SELECT id, username, role, permissions FROM users WHERE id = ?'
-  ).get(result.lastInsertRowid);
+  ).get(result.lastInsertRowid) as any;
+  logOperation(req.user!.id, req.user!.username, 'create', 'user', user.id, username);
   res.status(201).json({ user });
 });
 
@@ -204,7 +208,8 @@ router.put('/users/:id/permissions', (req: AuthRequest, res: Response) => {
   db.prepare('UPDATE users SET permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .run(permsJson, targetId);
 
-  const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
+  const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId) as any;
+  logOperation(req.user!.id, req.user!.username, 'update', 'user', targetId, updated.username, '修改权限: ' + (permissions ? JSON.stringify(permissions) : '清空'));
   res.json({ user: updated });
 });
 
@@ -257,7 +262,8 @@ router.put('/users/:id', (req: AuthRequest, res: Response) => {
       .run(password_hash, targetId);
   }
 
-  const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId);
+  const updated = db.prepare('SELECT id, username, role, permissions FROM users WHERE id = ?').get(targetId) as any;
+  logOperation(req.user!.id, req.user!.username, 'update', 'user', targetId, updated.username, '编辑用户信息');
   res.json({ user: updated });
 });
 
@@ -292,6 +298,7 @@ router.delete('/users/:id', (req: AuthRequest, res: Response) => {
   }
 
   db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+  logOperation(req.user!.id, req.user!.username, 'delete', 'user', targetId, targetUser.username);
   res.json({ message: '删除成功' });
 });
 

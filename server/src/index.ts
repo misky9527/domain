@@ -9,6 +9,7 @@ import settingsRoutes from './routes/settings';
 import companiesRoutes from './routes/companies';
 import dashboardRoutes from './routes/dashboard';
 import dnsProvidersRoutes from './routes/dns-providers';
+import adminRoutes from './routes/admin';
 import { sendTelegramMessage, formatDomainReport } from './services/telegram';
 import { checkExpirationReminders } from './services/reminder';
 import { setDbGetter } from './services/dns';
@@ -38,6 +39,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/companies', companiesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/dns-providers', dnsProvidersRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
