@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { getDb, getOrCreateDefaultGroup, getOrCreateGroup } from '../db';
@@ -8,6 +8,7 @@ import { queryWhois, queryBatchWhois } from '../services/whois';
 import { queryDnsRecords, queryNsRecords, extractNsInfo } from '../services/dns';
 import { checkSsl } from '../services/ssl';
 import { manualExpiryCheck } from '../services/reminder';
+import jwt from 'jsonwebtoken';
 
 const router = Router();
 router.use(authMiddleware);
@@ -420,7 +421,92 @@ router.post('/check-expiry', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Batch refresh all domain info (SSL + Whois + DNS) for current user
+// Batch refresh all domain info (SSE streaming for real-time progress)
+// NOTE: This route is registered BEFORE authMiddleware in index.ts to allow query-param token
+export const refreshAllStreamHandler = async (req: Request, res: Response) => {
+  // Token from query param (EventSource doesn't support custom headers)
+  const token = req.query.token as string;
+  if (!token) {
+    res.status(401).json({ error: '未提供认证令牌' });
+    return;
+  }
+
+  let userId: number;
+  try {
+    const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    userId = decoded.id;
+  } catch {
+    res.status(401).json({ error: '登录已过期' });
+    return;
+  }
+
+  const db = getDb();
+  const domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(userId) as any[];
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  if (domains.length === 0) {
+    res.write(`data: ${JSON.stringify({ done: true, total: 0, success: 0, failed: 0 })}\n\n`);
+    res.end();
+    return;
+  }
+
+  let success = 0;
+  let failed = 0;
+  const total = domains.length;
+
+  for (let i = 0; i < domains.length; i++) {
+    const d = domains[i];
+    const result: any = { domain: d.name, ssl: false, whois: false, dns: false, done: i + 1, total };
+
+    // SSL
+    try {
+      const sslInfo = await checkSsl(d.name);
+      db.prepare('UPDATE domains SET ssl_expiry=?, ssl_issuer=? WHERE id=?')
+        .run(sslInfo.expiry, sslInfo.issuer, d.id);
+      result.ssl = true;
+    } catch {}
+
+    // Whois
+    try {
+      const whoisInfo = await queryWhois(d.name);
+      if (whoisInfo.expiration_date || whoisInfo.registrar) {
+        db.prepare('UPDATE domains SET expiration_date=?, registrar=? WHERE id=?')
+          .run(whoisInfo.expiration_date || '', whoisInfo.registrar || '', d.id);
+      }
+      result.whois = true;
+    } catch {}
+
+    // DNS
+    try {
+      const [dnsRecords, nsRecords] = await Promise.all([
+        queryDnsRecords(d.name),
+        queryNsRecords(d.name),
+      ]);
+      const nsInfo = extractNsInfo(nsRecords);
+      db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+        .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
+      result.dns = true;
+    } catch {}
+
+    if (result.ssl || result.whois || result.dns) success++;
+    else failed++;
+    result.success = result.ssl || result.whois || result.dns;
+
+    res.write(`data: ${JSON.stringify(result)}\n\n`);
+  }
+
+  res.write(`data: ${JSON.stringify({ done: true, total, success, failed })}\n\n`);
+  res.end();
+};
+
+// Batch refresh all domain info (legacy — kept for backward compat)
 router.post('/refresh-all', async (req: AuthRequest, res: Response) => {
   const db = getDb();
   const domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(req.user!.id) as any[];

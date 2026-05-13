@@ -3,7 +3,7 @@ import cors from 'cors';
 import cron from 'node-cron';
 import { getDb } from './db';
 import authRoutes from './routes/auth';
-import domainRoutes from './routes/domains';
+import domainRoutes, { refreshAllStreamHandler } from './routes/domains';
 import groupRoutes from './routes/groups';
 import settingsRoutes from './routes/settings';
 import companiesRoutes from './routes/companies';
@@ -30,6 +30,8 @@ app.use((req, _res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+// SSE endpoint — must register before auth middleware
+app.get('/api/domains/refresh-all-stream', refreshAllStreamHandler);
 app.use('/api/domains', domainRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/settings', settingsRoutes);

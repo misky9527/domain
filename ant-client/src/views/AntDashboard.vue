@@ -174,15 +174,56 @@
       :footer="null"
       :closable="updateDone"
       :maskClosable="false"
-      width="600px"
+      width="700px"
+      @cancel="cancelUpdate"
     >
-      <div v-if="!updateDone" style="text-align:center;padding:40px 0">
-        <a-spin size="large" />
-        <p style="margin-top:16px;color:#666">正在检测 SSL、Whois、DNS…</p>
+      <div v-if="!updateDone">
+        <div style="display:flex;gap:20px;margin-bottom:16px">
+          <a-card :body-style="{ padding: '12px', textAlign: 'center' }" style="flex:1">
+            <div style="font-size:22px;font-weight:700;color:#1677ff">{{ updateProgress }}</div>
+            <div style="font-size:11px;color:#999">已处理</div>
+          </a-card>
+          <a-card :body-style="{ padding: '12px', textAlign: 'center' }" style="flex:1">
+            <div style="font-size:22px;font-weight:700;color:#1677ff">{{ updateTotal }}</div>
+            <div style="font-size:11px;color:#999">总计</div>
+          </a-card>
+          <a-card :body-style="{ padding: '12px', textAlign: 'center' }" style="flex:1">
+            <div style="font-size:22px;font-weight:700;color:#52c41a">{{ updateSuccess }}</div>
+            <div style="font-size:11px;color:#999">成功</div>
+          </a-card>
+          <a-card :body-style="{ padding: '12px', textAlign: 'center' }" style="flex:1">
+            <div style="font-size:22px;font-weight:700;color:#ff4d4f">{{ updateFailed }}</div>
+            <div style="font-size:11px;color:#999">失败</div>
+          </a-card>
+        </div>
+        <a-progress :percent="Math.round(updateProgress / Math.max(updateTotal, 1) * 100)" :show-info="false" />
+        <a-table
+          :data-source="liveResults"
+          :columns="updateColumns"
+          size="small"
+          :pagination="false"
+          :scroll="{ y: 300 }"
+          row-key="domain"
+          style="margin-top:12px"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'domain'">
+              <span style="font-family:monospace;font-size:12px">{{ record.domain }}</span>
+            </template>
+            <template v-if="column.key === 'detail'">
+              <a-tag v-if="record.ssl" color="green" size="small">SSL</a-tag>
+              <a-tag v-else color="red" size="small">SSL</a-tag>
+              <a-tag v-if="record.whois" color="green" size="small">Whois</a-tag>
+              <a-tag v-else color="red" size="small">Whois</a-tag>
+              <a-tag v-if="record.dns" color="green" size="small">DNS</a-tag>
+              <a-tag v-else color="red" size="small">DNS</a-tag>
+            </template>
+          </template>
+        </a-table>
       </div>
 
       <div v-else>
-        <div style="display:flex;gap:20px;margin-bottom:20px">
+        <div style="display:flex;gap:20px;margin-bottom:16px">
           <a-card :body-style="{ padding: '16px', textAlign: 'center' }" style="flex:1">
             <div style="font-size:28px;font-weight:700;color:#1677ff">{{ updateTotal }}</div>
             <div style="font-size:12px;color:#999">总域名</div>
@@ -196,33 +237,7 @@
             <div style="font-size:12px;color:#999">失败</div>
           </a-card>
         </div>
-
-        <a-table
-          v-if="updateFailed > 0"
-          :data-source="updateResults.filter(r => r.ssl || r.whois || r.dns)"
-          :columns="updateColumns"
-          size="small"
-          :pagination="false"
-          row-key="name"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'status'">
-              <span v-if="record.ssl && record.whois && record.dns" style="color:#52c41a">全部通过</span>
-              <span v-else-if="!record.ssl && !record.whois && !record.dns" style="color:#ff4d4f">全部失败</span>
-              <span v-else style="color:#faad14">部分失败</span>
-            </template>
-            <template v-if="column.key === 'detail'">
-              <a-tag v-if="record.ssl" color="green" size="small">SSL</a-tag>
-              <a-tag v-else color="red" size="small">SSL</a-tag>
-              <a-tag v-if="record.whois" color="green" size="small">Whois</a-tag>
-              <a-tag v-else color="red" size="small">Whois</a-tag>
-              <a-tag v-if="record.dns" color="green" size="small">DNS</a-tag>
-              <a-tag v-else color="red" size="small">DNS</a-tag>
-            </template>
-          </template>
-        </a-table>
-
-        <div style="text-align:center;margin-top:16px">
+        <div style="text-align:center">
           <a-button type="primary" @click="closeUpdateModal">关闭</a-button>
         </div>
       </div>
@@ -327,9 +342,8 @@ function toggleColumn(key: string) {
 }
 
 const updateColumns = [
-  { title: '域名', dataIndex: 'name', key: 'name', width: 200 },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '详情', key: 'detail', width: 200 },
+  { title: '域名', dataIndex: 'domain', key: 'domain', width: 200 },
+  { title: '检测', key: 'detail', width: 140 },
 ]
 
 onMounted(() => {
@@ -412,6 +426,9 @@ const updateDone = ref(false)
 const updateTotal = ref(0)
 const updateSuccess = ref(0)
 const updateFailed = ref(0)
+const updateProgress = ref(0)
+const liveResults = ref<Array<any>>([])
+let updateEventSource: EventSource | null = null
 
 // Batch select & group
 const selectedIds = ref<number[]>([])
@@ -454,27 +471,56 @@ async function doBatchGroup() {
 async function updateAll() {
   updateVisible.value = true
   updateDone.value = false
-  updateResults.value = []
+  liveResults.value = []
   updateTotal.value = 0
   updateSuccess.value = 0
   updateFailed.value = 0
+  updateProgress.value = 0
   updating.value = true
-  try {
-    const res = await api.post('/domains/refresh-all')
-    const data = res.data
-    updateResults.value = data.results || []
+
+  const token = localStorage.getItem('token')
+  const baseUrl = '/api/domains/refresh-all-stream'
+  const url = `${baseUrl}?token=${token}`
+
+  updateEventSource = new EventSource(url)
+
+  updateEventSource.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    if (data.done) {
+      updateTotal.value = data.total
+      updateSuccess.value = data.success
+      updateFailed.value = data.failed
+      updateDone.value = true
+      updating.value = false
+      updateEventSource?.close()
+      updateEventSource = null
+      loadDomains()
+      loadStats()
+      return
+    }
     updateTotal.value = data.total
-    updateSuccess.value = data.success
-    updateFailed.value = data.failed
-    updateDone.value = true
-    loadDomains()
-    loadStats()
-  } catch (err: any) {
-    updateDone.value = true
-    message.error(err.response?.data?.error || '更新失败')
-  } finally {
-    updating.value = false
+    updateProgress.value = data.done
+    updateSuccess.value = liveResults.value.filter(r => r.ssl || r.whois || r.dns).length
+    updateFailed.value = liveResults.value.filter(r => !r.ssl && !r.whois && !r.dns).length
+    liveResults.value.unshift(data)
   }
+
+  updateEventSource.onerror = () => {
+    updateEventSource?.close()
+    updateEventSource = null
+    updating.value = false
+    if (!updateDone.value) {
+      updateDone.value = true
+      message.error('连接中断')
+    }
+  }
+}
+
+function cancelUpdate() {
+  updateEventSource?.close()
+  updateEventSource = null
+  updating.value = false
+  updateVisible.value = false
 }
 
 function closeUpdateModal() {
