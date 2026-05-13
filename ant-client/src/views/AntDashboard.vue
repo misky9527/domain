@@ -132,8 +132,10 @@
             <a-tag v-if="record.purpose" color="blue">{{ record.purpose }}</a-tag>
           </template>
           <template v-if="column.key === 'dns'">
-            <span v-if="record.dns_ns_provider" style="font-size:12px;color:#1677ff">{{ record.dns_ns_provider }}</span>
-            <span v-else-if="record.dns_ns_server" style="font-size:12px;font-family:monospace;color:#8c8c8c">{{ record.dns_ns_server }}</span>
+            <template v-if="record.dns_ns_server">
+              <div style="font-size:12px;font-family:monospace;color:#333">{{ record.dns_ns_server }}</div>
+              <div v-if="record.dns_ns_provider" style="font-size:11px;color:#1677ff;margin-top:2px">{{ record.dns_ns_provider }}</div>
+            </template>
             <span v-else style="color:#8c8c8c;font-size:12px">-</span>
           </template>
           <template v-if="column.key === 'action'">
