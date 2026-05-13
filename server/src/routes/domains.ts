@@ -155,7 +155,7 @@ router.post('/batch-whois', async (req: AuthRequest, res: Response) => {
 
 // Create domain (require domain:add)
 router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: Response) => {
-  const { name, registrar, registration_date, expiration_date, purpose, tags, group_id } = req.body;
+  const { name, registrar, registration_date, expiration_date, purpose, tags, group_id, dns_ns_server, dns_ns_provider, dns_records } = req.body;
   if (!name) {
     res.status(400).json({ error: '域名不能为空' });
     return;
@@ -168,9 +168,10 @@ router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: 
     return;
   }
 
+  const recordsJson = dns_records ? JSON.stringify(dns_records) : '';
   const result = db.prepare(
-    'INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.user!.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '');
+    'INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.user!.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '', dns_ns_server || '', dns_ns_provider || '', recordsJson);
 
   const domain = db.prepare('SELECT * FROM domains WHERE id = ?').get(result.lastInsertRowid);
 
@@ -196,7 +197,7 @@ router.post('/batch', requirePermission('domain:add'), async (req: AuthRequest, 
 
   const db = getDb();
   const insert = db.prepare(
-    'INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
 
   const results = [];
@@ -219,7 +220,7 @@ router.post('/batch', requirePermission('domain:add'), async (req: AuthRequest, 
       continue;
     }
     try {
-      const result = insert.run(req.user!.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '');
+      const result = insert.run(req.user!.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '', d.dns_ns_server || '', d.dns_ns_provider || '', d.dns_records || '');
       results.push({ name: name, success: result.changes > 0 });
     } catch (err: any) {
       results.push({ name: name, success: false, error: err.message });
