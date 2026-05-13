@@ -147,6 +147,14 @@ router.post('/:id/users', (req: AuthRequest, res: Response) => {
     res.status(400).json({ error: '用户名和密码不能为空' });
     return;
   }
+  if (username.length < 4) {
+    res.status(400).json({ error: '用户名至少 4 位' });
+    return;
+  }
+  if (password.length < 6) {
+    res.status(400).json({ error: '密码至少 6 位' });
+    return;
+  }
 
   // Only super_admin can create company_admin
   if (role === 'company_admin' && req.user!.role !== 'super_admin') {
@@ -246,6 +254,10 @@ router.put('/users/:id', (req: AuthRequest, res: Response) => {
   const { username, password } = req.body;
 
   if (username) {
+    if (username.length < 4) {
+      res.status(400).json({ error: '用户名至少 4 位' });
+      return;
+    }
     // Check for duplicate username
     const existing = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, targetId);
     if (existing) {
@@ -257,6 +269,10 @@ router.put('/users/:id', (req: AuthRequest, res: Response) => {
   }
 
   if (password) {
+    if (password.length < 6) {
+      res.status(400).json({ error: '密码至少 6 位' });
+      return;
+    }
     const password_hash = bcrypt.hashSync(password, 10);
     db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(password_hash, targetId);

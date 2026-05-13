@@ -4,8 +4,13 @@
 
     <a-tabs v-model:activeKey="activeTab" type="card" size="small">
       <a-tab-pane key="user" tab="用户设置">
-        <a-card v-if="user" style="margin-bottom: 16px" size="small">
-          <template #title><span>用户信息</span></template>
+        <a-card v-if="user" size="small">
+          <template #title>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>用户信息</span>
+              <a-button type="link" size="small" @click="showPasswordModal = true">修改密码</a-button>
+            </div>
+          </template>
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="用户名">{{ user.username }}</a-descriptions-item>
             <a-descriptions-item label="角色">
@@ -16,20 +21,19 @@
           </a-descriptions>
         </a-card>
 
-        <a-card style="margin-bottom: 16px" size="small">
-          <template #title><span>修改密码</span></template>
+        <a-modal v-model:open="showPasswordModal" title="修改密码" @ok="changePassword" :confirm-loading="changingPwd" ok-text="保存" width="400px">
           <a-form :model="passwordForm" layout="vertical" size="small">
-            <a-form-item label="当前密码">
-              <a-input-password v-model:value="passwordForm.old_password" />
+            <a-form-item label="当前密码" :rules="[{ required: true, message: '请输入当前密码' }]">
+              <a-input-password v-model:value="passwordForm.old_password" placeholder="输入当前密码" />
             </a-form-item>
-            <a-form-item label="新密码">
-              <a-input-password v-model:value="passwordForm.new_password" />
-            </a-form-item>
-            <a-form-item>
-              <a-button type="primary" @click="changePassword" :loading="changingPwd" size="small">修改密码</a-button>
+            <a-form-item label="新密码" :rules="[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '密码至少 6 位' }
+            ]">
+              <a-input-password v-model:value="passwordForm.new_password" placeholder="至少 6 位" />
             </a-form-item>
           </a-form>
-        </a-card>
+        </a-modal>
 
         <a-card size="small">
           <template #title><span>Telegram 通知配置</span></template>
@@ -87,6 +91,7 @@ const activeTab = ref('user')
 const saving = ref(false)
 const testing = ref(false)
 const changingPwd = ref(false)
+const showPasswordModal = ref(false)
 const passwordForm = reactive({ old_password: '', new_password: '' })
 const user = ref<any>(JSON.parse(localStorage.getItem('user') || '{}'))
 const form = reactive({
@@ -137,6 +142,7 @@ async function changePassword() {
       new_password: passwordForm.new_password,
     })
     message.success('密码修改成功')
+    showPasswordModal.value = false
     passwordForm.old_password = ''
     passwordForm.new_password = ''
   } catch (err: any) {
