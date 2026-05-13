@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET 环境变量未设置'); })();
 
 export interface AuthRequest extends Request {
   user?: {
@@ -17,7 +17,7 @@ export function generateToken(user: { id: number; username: string; role: string
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role, company_id: user.company_id, permissions: user.permissions },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '24h' }
   );
 }
 

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { getDb, logOperation } from '../db';
 import { AuthRequest, generateToken, authMiddleware } from '../middleware/auth';
+import { decrypt } from '../utils/crypto';
 
 const router = Router();
 
@@ -120,6 +121,14 @@ router.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {
   if (!user) {
     res.status(404).json({ error: '用户不存在' });
     return;
+  }
+  // Decrypt token for frontend display
+  if (user.telegram_bot_token) {
+    try {
+      user.telegram_bot_token = decrypt(user.telegram_bot_token);
+    } catch {
+      user.telegram_bot_token = '';
+    }
   }
   res.json({ user });
 });

@@ -7,6 +7,7 @@ const express_1 = require("express");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const db_1 = require("../db");
 const auth_1 = require("../middleware/auth");
+const crypto_1 = require("../utils/crypto");
 const router = (0, express_1.Router)();
 // Register (creates company + pending user)
 router.post('/register', (req, res) => {
@@ -103,6 +104,15 @@ router.get('/me', auth_1.authMiddleware, (req, res) => {
     if (!user) {
         res.status(404).json({ error: '用户不存在' });
         return;
+    }
+    // Decrypt token for frontend display
+    if (user.telegram_bot_token) {
+        try {
+            user.telegram_bot_token = (0, crypto_1.decrypt)(user.telegram_bot_token);
+        }
+        catch {
+            user.telegram_bot_token = '';
+        }
     }
     res.json({ user });
 });

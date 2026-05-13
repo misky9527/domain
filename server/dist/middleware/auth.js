@@ -8,10 +8,10 @@ exports.generateToken = generateToken;
 exports.authMiddleware = authMiddleware;
 exports.adminMiddleware = adminMiddleware;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET 环境变量未设置'); })();
 exports.JWT_SECRET = JWT_SECRET;
 function generateToken(user) {
-    return jsonwebtoken_1.default.sign({ id: user.id, username: user.username, role: user.role, company_id: user.company_id, permissions: user.permissions }, JWT_SECRET, { expiresIn: '7d' });
+    return jsonwebtoken_1.default.sign({ id: user.id, username: user.username, role: user.role, company_id: user.company_id, permissions: user.permissions }, JWT_SECRET, { expiresIn: '24h' });
 }
 function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;

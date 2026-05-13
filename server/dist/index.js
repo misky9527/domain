@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const node_cron_1 = __importDefault(require("node-cron"));
 const db_1 = require("./db");
 const auth_1 = __importDefault(require("./routes/auth"));
@@ -49,12 +50,22 @@ const dashboard_1 = __importDefault(require("./routes/dashboard"));
 const dns_providers_1 = __importDefault(require("./routes/dns-providers"));
 const admin_1 = __importDefault(require("./routes/admin"));
 const telegram_1 = require("./services/telegram");
+const crypto_1 = require("./utils/crypto");
 const reminder_1 = require("./services/reminder");
 const dns_1 = require("./services/dns");
 const app = (0, express_1.default)();
 const PORT = 3001;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
+// 登录限流：15分钟内最多10次
+const loginLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: '登录尝试过多，请15分钟后再试' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use('/api/auth/login', loginLimiter);
 // Request logger
 app.use((req, _res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -91,7 +102,7 @@ node_cron_1.default.schedule('0 4 * * *', () => {
         if (domains.length === 0)
             continue;
         const message = (0, telegram_1.formatDomainReport)(domains);
-        (0, telegram_1.sendTelegramMessage)(user.telegram_bot_token, user.telegram_chat_id, message);
+        (0, telegram_1.sendTelegramMessage)((0, crypto_1.decrypt)(user.telegram_bot_token), user.telegram_chat_id, message);
     }
 });
 // Start server

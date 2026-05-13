@@ -1,5 +1,6 @@
 import { getDb } from '../db';
 import { sendTelegramMessage } from './telegram';
+import { decrypt } from '../utils/crypto';
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 
@@ -84,7 +85,8 @@ export function manualExpiryCheck(userId: number): { count: number; message: str
     }
   }
 
-  sendTelegramMessage(user.telegram_bot_token, user.telegram_chat_id, msg);
+  const decryptedToken = decrypt(user.telegram_bot_token);
+  sendTelegramMessage(decryptedToken, user.telegram_chat_id, msg);
   return { count: reminders.length, message: `已发送 ${reminders.length} 条提醒到 Telegram` };
 }
 
@@ -145,6 +147,7 @@ export function checkExpirationReminders(): void {
       msg += `  ${r.name} — 还剩 <b>${r.days}</b> 天\n`;
     }
 
-    sendTelegramMessage(user.telegram_bot_token, user.telegram_chat_id, msg);
+    const decryptedToken = decrypt(user.telegram_bot_token);
+    sendTelegramMessage(decryptedToken, user.telegram_chat_id, msg);
   }
 }

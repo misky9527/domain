@@ -3,6 +3,7 @@ import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requirePermission } from '../middleware/permission';
 import { sendTelegramMessage } from '../services/telegram';
+import { encrypt, decrypt } from '../utils/crypto';
 
 const router = Router();
 router.use(authMiddleware);
@@ -12,7 +13,7 @@ router.get('/telegram', (req: AuthRequest, res: Response) => {
   const db = getDb();
   const user = db.prepare('SELECT telegram_bot_token, telegram_chat_id FROM users WHERE id = ?').get(req.user!.id) as any;
   res.json({
-    telegram_bot_token: user.telegram_bot_token || '',
+    telegram_bot_token: user.telegram_bot_token ? decrypt(user.telegram_bot_token) : '',
     telegram_chat_id: user.telegram_chat_id || '',
   });
 });
@@ -22,7 +23,7 @@ router.put('/telegram', requirePermission('setting:telegram'), (req: AuthRequest
   const { telegram_bot_token, telegram_chat_id } = req.body;
   const db = getDb();
   db.prepare('UPDATE users SET telegram_bot_token = ?, telegram_chat_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(telegram_bot_token || '', telegram_chat_id || '', req.user!.id);
+    .run(telegram_bot_token ? encrypt(telegram_bot_token) : '', telegram_chat_id || '', req.user!.id);
   logOperation(req.user!.id, req.user!.username, 'update', 'user', req.user!.id, req.user!.username, '修改 Telegram 通知设置');
   res.json({ message: '设置已保存' });
 });
@@ -37,7 +38,8 @@ router.post('/telegram/test', requirePermission('setting:telegram'), async (req:
     return;
   }
 
-  const ok = await sendTelegramMessage(user.telegram_bot_token, user.telegram_chat_id, '<b>✅ DomainKeeper 通知测试</b>\n\n如果收到这条消息，说明配置正确！');
+  const decryptedToken = decrypt(user.telegram_bot_token);
+  const ok = await sendTelegramMessage(decryptedToken, user.telegram_chat_id, '<b>✅ DomainKeeper 通知测试</b>\n\n如果收到这条消息，说明配置正确！');
   if (ok) {
     res.json({ message: '测试消息已发送' });
   } else {

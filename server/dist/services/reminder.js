@@ -4,6 +4,7 @@ exports.manualExpiryCheck = manualExpiryCheck;
 exports.checkExpirationReminders = checkExpirationReminders;
 const db_1 = require("../db");
 const telegram_1 = require("./telegram");
+const crypto_1 = require("../utils/crypto");
 const THRESHOLDS = [30, 15, 7, 3, 1];
 /**
  * 手动触发到期检测，发送 Telegram 通知
@@ -62,7 +63,8 @@ function manualExpiryCheck(userId) {
             msg += `  ${r.name} — 还剩 <b>${r.days}</b> 天\n`;
         }
     }
-    (0, telegram_1.sendTelegramMessage)(user.telegram_bot_token, user.telegram_chat_id, msg);
+    const decryptedToken = (0, crypto_1.decrypt)(user.telegram_bot_token);
+    (0, telegram_1.sendTelegramMessage)(decryptedToken, user.telegram_chat_id, msg);
     return { count: reminders.length, message: `已发送 ${reminders.length} 条提醒到 Telegram` };
 }
 /**
@@ -105,7 +107,8 @@ function checkExpirationReminders() {
         for (const r of remindersToSend) {
             msg += `  ${r.name} — 还剩 <b>${r.days}</b> 天\n`;
         }
-        (0, telegram_1.sendTelegramMessage)(user.telegram_bot_token, user.telegram_chat_id, msg);
+        const decryptedToken = (0, crypto_1.decrypt)(user.telegram_bot_token);
+        (0, telegram_1.sendTelegramMessage)(decryptedToken, user.telegram_chat_id, msg);
     }
 }
 //# sourceMappingURL=reminder.js.map

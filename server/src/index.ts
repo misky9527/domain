@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import cron from 'node-cron';
 import { getDb } from './db';
 import authRoutes from './routes/auth';
@@ -11,6 +12,7 @@ import dashboardRoutes from './routes/dashboard';
 import dnsProvidersRoutes from './routes/dns-providers';
 import adminRoutes from './routes/admin';
 import { sendTelegramMessage, formatDomainReport } from './services/telegram';
+import { decrypt } from './utils/crypto';
 import { checkExpirationReminders } from './services/reminder';
 import { setDbGetter } from './services/dns';
 
@@ -19,6 +21,16 @@ const PORT = 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// 登录限流：15分钟内最多10次
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: '登录尝试过多，请15分钟后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', loginLimiter);
 
 // Request logger
 app.use((req, _res, next) => {
@@ -61,7 +73,7 @@ cron.schedule('0 4 * * *', () => {
     if (domains.length === 0) continue;
 
     const message = formatDomainReport(domains);
-    sendTelegramMessage(user.telegram_bot_token, user.telegram_chat_id, message);
+    sendTelegramMessage(decrypt(user.telegram_bot_token), user.telegram_chat_id, message);
   }
 });
 

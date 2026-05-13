@@ -2,7 +2,7 @@ import { Router, Response, Request } from 'express';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { getDb, getOrCreateDefaultGroup, getOrCreateGroup, logOperation } from '../db';
-import { AuthRequest, authMiddleware } from '../middleware/auth';
+import { AuthRequest, authMiddleware, JWT_SECRET } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
 import { queryDnsRecords, queryNsRecords, extractNsInfo } from '../services/dns';
@@ -440,7 +440,7 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
 
   let userId: number;
   try {
-    const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
+    // JWT_SECRET imported from auth middleware
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     userId = decoded.id;
   } catch {

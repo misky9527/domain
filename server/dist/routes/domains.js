@@ -437,8 +437,8 @@ const refreshAllStreamHandler = async (req, res) => {
     }
     let userId;
     try {
-        const JWT_SECRET = process.env.JWT_SECRET || 'domain-keeper-secret-key-change-in-production';
-        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        // JWT_SECRET imported from auth middleware
+        const decoded = jsonwebtoken_1.default.verify(token, auth_1.JWT_SECRET);
         userId = decoded.id;
     }
     catch {
