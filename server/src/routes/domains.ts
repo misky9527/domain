@@ -411,11 +411,36 @@ router.put('/:id/refresh-dns', requirePermission('domain:refresh-dns'), async (r
   }
 
   try {
-    const [records, nsRecords] = await Promise.all([
-      queryDnsRecords(domain.name),
-      queryNsRecords(domain.name),
-    ]);
-    // Extract NS provider info
+    // 分类型查询 DNS，避免 type=ANY 被 RFC 8482 拦截
+    const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+    const allRecords: any[] = [];
+    for (const t of recordTypes) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const url = `https://dns.google/resolve?name=${domain.name}&type=${t}`;
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.Answer) {
+            allRecords.push(...data.Answer.map((r: any) => ({
+              name: r.name,
+              type: DNS_TYPE_MAP[r.type] || r.type,
+              TTL: r.TTL,
+              data: r.data,
+            })));
+          }
+        }
+      } catch {}
+    }
+
+    // 过滤用户关心的记录类型
+    const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA'];
+    const records = allRecords.filter((r: any) => userTypes.includes(r.type));
+
+    // 单独查 NS 记录用于推断服务商
+    const nsRecords = await queryNsRecords(domain.name).catch(() => []);
     const nsInfo = extractNsInfo(nsRecords);
     db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
