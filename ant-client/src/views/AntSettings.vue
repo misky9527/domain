@@ -1,113 +1,88 @@
 <template>
   <div>
-    <h2 style="margin-bottom: 20px">设置维护</h2>
+    <h2 style="margin-bottom: 16px">设置维护</h2>
 
-    <a-row :gutter="[16, 16]">
-      <a-col :span="8">
-        <a-card hoverable @click="router.push('/settings')">
-          <template #title>
-            <SettingOutlined /> 用户设置
-          </template>
-          <p>修改密码、配置 Telegram 通知</p>
+    <a-tabs v-model:activeKey="activeTab" type="card" size="small">
+      <a-tab-pane key="user" tab="用户设置">
+        <a-card v-if="user" style="margin-bottom: 16px" size="small">
+          <template #title><span>用户信息</span></template>
+          <a-descriptions :column="1" bordered size="small">
+            <a-descriptions-item label="用户名">{{ user.username }}</a-descriptions-item>
+            <a-descriptions-item label="角色">
+              <a-tag :color="user.role === 'super_admin' ? 'red' : (user.role === 'company_admin' ? 'orange' : 'blue')">
+                {{ user.role === 'super_admin' ? '超级管理员' : (user.role === 'company_admin' ? '公司管理员' : '普通用户') }}
+              </a-tag>
+            </a-descriptions-item>
+          </a-descriptions>
         </a-card>
-      </a-col>
-      <a-col :span="8" v-if="isSuperAdmin">
-        <a-card hoverable @click="router.push('/settings/orphans')">
-          <template #title>
-            <UserDeleteOutlined /> 孤悬用户管理
-          </template>
-          <p>管理无公司归属的孤立用户</p>
+
+        <a-card style="margin-bottom: 16px" size="small">
+          <template #title><span>修改密码</span></template>
+          <a-form :model="passwordForm" layout="vertical" size="small">
+            <a-form-item label="当前密码">
+              <a-input-password v-model:value="passwordForm.old_password" />
+            </a-form-item>
+            <a-form-item label="新密码">
+              <a-input-password v-model:value="passwordForm.new_password" />
+            </a-form-item>
+            <a-form-item>
+              <a-button type="primary" @click="changePassword" :loading="changingPwd" size="small">修改密码</a-button>
+            </a-form-item>
+          </a-form>
         </a-card>
-      </a-col>
-      <a-col :span="8" v-if="isSuperAdmin">
-        <a-card hoverable @click="router.push('/settings/logs')">
-          <template #title>
-            <FileTextOutlined /> 操作日志
-          </template>
-          <p>查看所有操作记录</p>
+
+        <a-card size="small">
+          <template #title><span>Telegram 通知配置</span></template>
+          <a-form :model="form" layout="vertical" size="small">
+            <a-form-item label="Bot Token">
+              <a-input v-model:value="form.telegram_bot_token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" />
+            </a-form-item>
+            <a-form-item label="Chat ID">
+              <a-select
+                v-model:value="chatIds"
+                mode="tags"
+                placeholder="输入 Chat ID 后按回车添加"
+                style="width: 100%"
+                :open="false"
+              />
+            </a-form-item>
+            <a-form-item>
+              <a-space size="small">
+                <a-button type="primary" @click="saveSettings" :loading="saving" size="small">
+                  <template #icon><SaveOutlined /></template>
+                  保存设置
+                </a-button>
+                <a-button @click="testTelegram" :loading="testing" size="small">
+                  <template #icon><SendOutlined /></template>
+                  发送测试消息
+                </a-button>
+              </a-space>
+            </a-form-item>
+          </a-form>
         </a-card>
-      </a-col>
-    </a-row>
+      </a-tab-pane>
 
-    <a-divider v-if="currentPath === '/settings'" />
+      <a-tab-pane key="orphans" tab="孤悬用户管理" v-if="isSuperAdmin">
+        <AntOrphans />
+      </a-tab-pane>
 
-    <div v-if="currentPath === '/settings'">
-      <a-card v-if="user" style="margin-bottom: 20px">
-        <template #title>
-          <span>用户信息</span>
-        </template>
-        <a-descriptions :column="1" bordered size="small">
-          <a-descriptions-item label="用户名">{{ user.username }}</a-descriptions-item>
-          <a-descriptions-item label="角色">
-            <a-tag :color="user.role === 'super_admin' ? 'red' : (user.role === 'company_admin' ? 'orange' : 'blue')">
-              {{ user.role === 'super_admin' ? '超级管理员' : (user.role === 'company_admin' ? '公司管理员' : '普通用户') }}
-            </a-tag>
-          </a-descriptions-item>
-        </a-descriptions>
-      </a-card>
-
-      <a-card style="margin-bottom: 20px">
-        <template #title><span>修改密码</span></template>
-        <a-form :model="passwordForm" layout="vertical">
-          <a-form-item label="当前密码">
-            <a-input-password v-model:value="passwordForm.old_password" />
-          </a-form-item>
-          <a-form-item label="新密码">
-            <a-input-password v-model:value="passwordForm.new_password" />
-          </a-form-item>
-          <a-form-item>
-            <a-button type="primary" @click="changePassword" :loading="changingPwd">修改密码</a-button>
-          </a-form-item>
-        </a-form>
-      </a-card>
-
-      <a-card>
-        <template #title>
-          <span>Telegram 通知配置</span>
-        </template>
-        <a-form :model="form" layout="vertical">
-          <a-form-item label="Bot Token">
-            <a-input
-              v-model:value="form.telegram_bot_token"
-              placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-            />
-          </a-form-item>
-          <a-form-item label="Chat ID">
-            <a-select
-              v-model:value="chatIds"
-              mode="tags"
-              placeholder="输入 Chat ID 后按回车添加"
-              style="width: 100%"
-              :open="false"
-              :dropdown-match-select-width="false"
-            />
-          </a-form-item>
-          <a-form-item>
-            <a-button type="primary" @click="saveSettings" :loading="saving">
-              <template #icon><SaveOutlined /></template>
-              保存设置
-            </a-button>
-            <a-button style="margin-left: 10px" @click="testTelegram" :loading="testing">
-              <template #icon><SendOutlined /></template>
-              发送测试消息
-            </a-button>
-          </a-form-item>
-        </a-form>
-      </a-card>
-    </div>
+      <a-tab-pane key="logs" tab="操作日志" v-if="isSuperAdmin">
+        <AntOperationLogs />
+      </a-tab-pane>
+    </a-tabs>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { SaveOutlined, SendOutlined, SettingOutlined, UserDeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { ref, reactive, onMounted, computed, defineAsyncComponent } from 'vue'
+import { SaveOutlined, SendOutlined } from '@ant-design/icons-vue'
 import api from '../utils/axios'
 import { message } from 'ant-design-vue'
 
-const router = useRouter()
-const route = useRoute()
-const currentPath = computed(() => route.path)
+const AntOrphans = defineAsyncComponent(() => import('./AntOrphans.vue'))
+const AntOperationLogs = defineAsyncComponent(() => import('./AntOperationLogs.vue'))
+
+const activeTab = ref('user')
 
 const saving = ref(false)
 const testing = ref(false)
