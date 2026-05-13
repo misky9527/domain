@@ -175,6 +175,25 @@ onMounted(async () => {
     dnsNsServer.value = res.data.domain.dns_ns_server || ''
     dnsNsProvider.value = res.data.domain.dns_ns_provider || ''
     Object.assign(editForm, res.data.domain)
+
+    // Parse cached DNS records from domain data
+    if (res.data.domain.dns_records) {
+      try {
+        dnsRecords.value = JSON.parse(res.data.domain.dns_records)
+      } catch {
+        dnsRecords.value = []
+      }
+    }
+
+    // Parse cached SSL from domain data
+    if (res.data.domain.ssl_expiry) {
+      sslInfo.value = {
+        expiry: res.data.domain.ssl_expiry,
+        issuer: res.data.domain.ssl_issuer || '',
+        valid: new Date(res.data.domain.ssl_expiry).getTime() > Date.now(),
+        days_remaining: Math.ceil((new Date(res.data.domain.ssl_expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      }
+    }
   } catch {
     message.error('加载域名信息失败')
     router.push('/')
@@ -184,9 +203,6 @@ onMounted(async () => {
     const res = await api.get('/groups')
     groups.value = res.data.groups
   } catch {}
-
-  refreshDns()
-  refreshSsl()
 })
 
 async function saveEdit() {
@@ -207,13 +223,18 @@ async function saveEdit() {
 async function refreshDns() {
   dnsLoading.value = true
   try {
-    const res = await api.get(`/domains/${route.params.id}/dns`)
-    dnsRecords.value = res.data.records
-    // Reload domain to get updated NS info
+    // Call write refresh endpoint
+    const res = await api.put(`/domains/${route.params.id}/refresh-dns`)
+    dnsRecords.value = res.data.records || []
+    // Reload domain to get updated NS columns
     const domainRes = await api.get(`/domains/${route.params.id}`)
+    domain.value = domainRes.data.domain
     dnsNsServer.value = domainRes.data.domain.dns_ns_server || ''
     dnsNsProvider.value = domainRes.data.domain.dns_ns_provider || ''
-  } catch {} finally {
+    message.success('DNS 刷新成功')
+  } catch (err: any) {
+    message.error(err.response?.data?.error || 'DNS 刷新失败')
+  } finally {
     dnsLoading.value = false
   }
 }
@@ -221,9 +242,12 @@ async function refreshDns() {
 async function refreshSsl() {
   sslLoading.value = true
   try {
-    const res = await api.get(`/domains/${route.params.id}/ssl`)
+    const res = await api.put(`/domains/${route.params.id}/refresh-ssl`)
     sslInfo.value = res.data.ssl
-  } catch {} finally {
+    message.success('SSL 刷新成功')
+  } catch (err: any) {
+    message.error(err.response?.data?.error || 'SSL 刷新失败')
+  } finally {
     sslLoading.value = false
   }
 }

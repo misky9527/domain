@@ -32,17 +32,27 @@
     <!-- Search & filter bar -->
     <a-card style="margin-bottom: 20px">
       <a-row :gutter="[12, 12]" align="middle">
-        <a-col :span="6">
+        <a-col :span="4">
           <a-input v-model:value="search" placeholder="搜索域名..." allowClear @change="loadDomains" />
         </a-col>
-        <a-col :span="5">
-          <a-select v-model:value="groupFilter" placeholder="全部分组" allowClear style="width: 100%" @change="loadDomains">
+        <a-col :span="3">
+          <a-select v-model:value="groupFilter" placeholder="分组" allowClear style="width: 100%" @change="loadDomains">
             <a-select-option v-for="g in groups" :key="g.id" :value="g.id">
               {{ g.name }}
             </a-select-option>
           </a-select>
         </a-col>
-        <a-col :span="4">
+        <a-col :span="3">
+          <a-select v-model:value="nsProviderFilter" placeholder="DNS服务商" allowClear style="width: 100%" @change="loadDomains">
+            <a-select-option v-for="p in nsProviders" :key="p" :value="p">
+              {{ p }}
+            </a-select-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model:value="nsServerFilter" placeholder="NS服务器" allowClear @change="loadDomains" />
+        </a-col>
+        <a-col :span="3">
           <a-select v-model:value="sortBy" style="width: 100%" @change="loadDomains">
             <a-select-option value="created_at">添加时间</a-select-option>
             <a-select-option value="name">域名</a-select-option>
@@ -54,7 +64,7 @@
             {{ sortOrder === 'desc' ? '↓' : '↑' }}
           </a-button>
         </a-col>
-        <a-col :span="8" style="text-align: right; white-space: nowrap">
+        <a-col :span="7" style="text-align: right; white-space: nowrap">
           <a-button size="small" @click="refreshAll" :loading="loading">
             <template #icon><ReloadOutlined /></template>
             刷新
@@ -252,8 +262,11 @@ const page = ref(1)
 const pageSize = ref(20)
 const search = ref('')
 const groupFilter = ref(undefined)
+const nsProviderFilter = ref(undefined)
+const nsServerFilter = ref('')
 const sortBy = ref('created_at')
 const sortOrder = ref('desc')
+const nsProviders = ref<string[]>([])
 
 const user = JSON.parse(localStorage.getItem('user') || '{}')
 const canAddDomain = computed(() => {
@@ -323,11 +336,13 @@ onMounted(() => {
   loadStats()
   loadGroups()
   loadDomains()
+  loadNsProviders()
 })
 
 onActivated(() => {
   loadDomains()
   loadStats()
+  loadNsProviders()
 })
 
 async function loadStats() {
@@ -355,12 +370,21 @@ async function loadDomains() {
     const params: any = { page: page.value, page_size: pageSize.value, sort_by: sortBy.value, sort_order: sortOrder.value }
     if (search.value) params.search = search.value
     if (groupFilter.value) params.group_id = groupFilter.value
+    if (nsProviderFilter.value) params.ns_provider = nsProviderFilter.value
+    if (nsServerFilter.value) params.ns_server = nsServerFilter.value
     const res = await api.get('/domains', { params })
     domains.value = res.data.domains
     total.value = res.data.total
   } catch {} finally {
     loading.value = false
   }
+}
+
+async function loadNsProviders() {
+  try {
+    const res = await api.get('/domains/ns-providers')
+    nsProviders.value = res.data.providers || []
+  } catch {}
 }
 
 function toggleSort() {

@@ -12,10 +12,19 @@ import { manualExpiryCheck } from '../services/reminder';
 const router = Router();
 router.use(authMiddleware);
 
+// List available DNS providers for filter dropdown
+router.get('/ns-providers', (req: AuthRequest, res: Response) => {
+  const db = getDb();
+  const providers = db.prepare(
+    "SELECT DISTINCT dns_ns_provider FROM domains WHERE dns_ns_provider != '' AND dns_ns_provider IS NOT NULL ORDER BY dns_ns_provider"
+  ).all() as any[];
+  res.json({ providers: providers.map((r: any) => r.dns_ns_provider) });
+});
+
 // List domains
 router.get('/', (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const { search, group_id, sort_by, sort_order, page = '1', page_size = '20' } = req.query;
+  const { search, group_id, ns_provider, ns_server, sort_by, sort_order, page = '1', page_size = '20' } = req.query;
   const filter = getCompanyFilter(req);
   const userId = req.user!.id;
 
@@ -43,6 +52,14 @@ router.get('/', (req: AuthRequest, res: Response) => {
   if (group_id) {
     sql += ' AND d.group_id = ?';
     params.push(Number(group_id));
+  }
+  if (ns_provider) {
+    sql += ' AND d.dns_ns_provider = ?';
+    params.push(ns_provider);
+  }
+  if (ns_server) {
+    sql += ' AND d.dns_ns_server LIKE ?';
+    params.push(`%${ns_server}%`);
   }
 
   // Count total
@@ -361,75 +378,36 @@ router.put('/:id/refresh-ssl', requirePermission('domain:refresh-ssl'), async (r
   }
 });
 
-// Get DNS records (require domain:view)
+// Get DNS records from DB cache (require domain:view)
 router.get('/:id/dns', requirePermission('domain:view'), async (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const userId = req.user!.id;
-  const filter = getCompanyFilter(req);
-
-  let domain: any;
-  if (filter.companyId === null && !filter.needsJoin) {
-    domain = db.prepare('SELECT name FROM domains WHERE id = ?').get(req.params.id);
-  } else if (filter.companyId !== null && filter.needsJoin) {
-    domain = db.prepare(
-      'SELECT d.name FROM domains d LEFT JOIN users u ON d.user_id = u.id WHERE d.id = ? AND u.company_id = ?'
-    ).get(req.params.id, filter.companyId);
-  } else {
-    domain = db.prepare('SELECT name FROM domains WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-  }
-
-  if (!domain) {
-    res.status(404).json({ error: '域名不存在' });
-    return;
-  }
-  try {
-    const [records, nsRecords] = await Promise.all([
-      queryDnsRecords(domain.name),
-      queryNsRecords(domain.name),
-    ]);
-    // Save to database for caching
-    const nsInfo = extractNsInfo(nsRecords);
-    db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
-    res.json({ records });
-  } catch (err: any) {
-    // Fall back to cached DNS records
-    const cached = db.prepare('SELECT dns_records FROM domains WHERE id = ?').get(req.params.id) as any;
-    if (cached?.dns_records) {
-      res.json({ records: JSON.parse(cached.dns_records), cached: true });
-    } else {
-      res.status(500).json({ error: err.message });
+  const cached = db.prepare('SELECT dns_records FROM domains WHERE id = ?').get(req.params.id) as any;
+  if (cached?.dns_records) {
+    try {
+      res.json({ records: JSON.parse(cached.dns_records) });
+    } catch {
+      res.json({ records: [] });
     }
+  } else {
+    res.json({ records: [] });
   }
 });
 
-// Get SSL info (require domain:view)
+// Get SSL info from DB cache (require domain:view)
 router.get('/:id/ssl', requirePermission('domain:view'), async (req: AuthRequest, res: Response) => {
   const db = getDb();
-  const userId = req.user!.id;
-  const filter = getCompanyFilter(req);
-
-  let domain: any;
-  if (filter.companyId === null && !filter.needsJoin) {
-    domain = db.prepare('SELECT name FROM domains WHERE id = ?').get(req.params.id);
-  } else if (filter.companyId !== null && filter.needsJoin) {
-    domain = db.prepare(
-      'SELECT d.name FROM domains d LEFT JOIN users u ON d.user_id = u.id WHERE d.id = ? AND u.company_id = ?'
-    ).get(req.params.id, filter.companyId);
-  } else {
-    domain = db.prepare('SELECT name FROM domains WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-  }
-
+  const domain = db.prepare('SELECT ssl_expiry, ssl_issuer FROM domains WHERE id = ?').get(req.params.id) as any;
   if (!domain) {
     res.status(404).json({ error: '域名不存在' });
     return;
   }
-  try {
-    const sslInfo = await checkSsl(domain.name);
-    res.json({ ssl: sslInfo });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  const ssl = domain.ssl_expiry ? {
+    expiry: domain.ssl_expiry,
+    issuer: domain.ssl_issuer || '',
+    valid: new Date(domain.ssl_expiry).getTime() > Date.now(),
+    days_remaining: Math.ceil((new Date(domain.ssl_expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+  } : null;
+  res.json({ ssl });
 });
 
 // Manual expiry check — send Telegram notification
