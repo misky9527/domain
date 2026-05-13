@@ -73,6 +73,36 @@
       <a-tab-pane key="logs" tab="操作日志" v-if="isSuperAdmin">
         <AntOperationLogs />
       </a-tab-pane>
+
+      <a-tab-pane key="backup" tab="数据库备份" v-if="isSuperAdmin">
+        <a-card size="small">
+          <template #title>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>备份管理</span>
+              <a-button type="primary" size="small" @click="doBackup" :loading="backingUp">立即备份</a-button>
+            </div>
+          </template>
+          <p style="font-size:12px;color:#999;margin-bottom:12px">
+            每天 02:00 自动备份，保留最近 30 份
+          </p>
+          <a-table
+            :data-source="backups"
+            :columns="backupColumns"
+            :loading="loadingBackups"
+            size="small"
+            :pagination="{ pageSize: 10, showTotal: (t: number) => '共 ' + t + ' 份备份' }"
+            row-key="filename"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'size'">{{ (record.size / 1024).toFixed(1) }} KB</template>
+              <template v-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
+              <template v-if="column.key === 'action'">
+                <a-button type="link" danger size="small" @click="confirmDeleteBackup(record)">删除</a-button>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-tab-pane>
     </a-tabs>
   </div>
 </template>
@@ -101,6 +131,17 @@ const form = reactive({
 const chatIds = ref<string[]>([])
 
 const isSuperAdmin = computed(() => user.value.role === 'super_admin')
+
+// 数据库备份
+const backups = ref<any[]>([])
+const loadingBackups = ref(false)
+const backingUp = ref(false)
+const backupColumns = [
+  { title: '文件名', dataIndex: 'filename', key: 'filename', minWidth: 250 },
+  { title: '大小', dataIndex: 'size', key: 'size', width: 100 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
+  { title: '操作', key: 'action', width: 80 },
+]
 
 onMounted(async () => {
   try {
@@ -163,4 +204,59 @@ async function testTelegram() {
     testing.value = false
   }
 }
+
+// 数据库备份
+async function loadBackups() {
+  loadingBackups.value = true
+  try {
+    const res = await api.get('/admin/backups')
+    backups.value = res.data.backups
+  } catch (err: any) {
+    message.error(err.response?.data?.error || '加载备份列表失败')
+  } finally {
+    loadingBackups.value = false
+  }
+}
+
+async function doBackup() {
+  backingUp.value = true
+  try {
+    const res = await api.post('/admin/backup')
+    message.success('备份成功')
+    loadBackups()
+  } catch (err: any) {
+    message.error(err.response?.data?.error || '备份失败')
+  } finally {
+    backingUp.value = false
+  }
+}
+
+function confirmDeleteBackup(row: any) {
+  Modal.confirm({
+    title: '确认删除',
+    content: '确定删除备份文件「' + row.filename + '」？',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await api.delete('/admin/backups/' + row.filename)
+        message.success('已删除')
+        loadBackups()
+      } catch (err: any) {
+        message.error(err.response?.data?.error || '删除失败')
+      }
+    },
+  })
+}
+
+function formatDateTime(date: string) {
+  if (!date) return '-'
+  return date.replace('T', ' ').substring(0, 19)
+}
+
+// 加载备份列表
+onMounted(() => {
+  if (isSuperAdmin.value) loadBackups()
+})
 </script>

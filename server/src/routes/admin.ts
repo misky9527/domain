@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { getDb, logOperation } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requireRole } from '../middleware/permission';
+import { createBackup, listBackups, deleteBackup } from '../services/backup';
 
 const router = Router();
 router.use(authMiddleware);
@@ -100,6 +101,43 @@ router.get('/logs', requireRole('super_admin'), (req: AuthRequest, res: Response
   ).all(...params, pageSize, offset);
 
   res.json({ logs, total, page, pageSize });
+});
+
+// POST /api/admin/backup — 手动创建备份
+router.post('/backup', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
+  try {
+    const result = createBackup();
+    logOperation(req.user!.id, req.user!.username, 'create', 'backup', undefined, result.filename, '手动创建数据库备份');
+    res.json({ message: '备份成功', backup: result });
+  } catch (err: any) {
+    res.status(500).json({ error: '备份失败: ' + (err.message || '未知错误') });
+  }
+});
+
+// GET /api/admin/backups — 列出所有备份
+router.get('/backups', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
+  try {
+    const backups = listBackups();
+    res.json({ backups });
+  } catch (err: any) {
+    res.status(500).json({ error: '获取备份列表失败' });
+  }
+});
+
+// DELETE /api/admin/backups/:filename — 删除备份
+router.delete('/backups/:filename', requireRole('super_admin'), (req: AuthRequest, res: Response) => {
+  const { filename } = req.params;
+  if (!filename.endsWith('.db')) {
+    res.status(400).json({ error: '无效的备份文件' });
+    return;
+  }
+  const ok = deleteBackup(filename);
+  if (!ok) {
+    res.status(404).json({ error: '备份文件不存在' });
+    return;
+  }
+  logOperation(req.user!.id, req.user!.username, 'delete', 'backup', undefined, filename, '删除数据库备份');
+  res.json({ message: '已删除备份: ' + filename });
 });
 
 export default router;

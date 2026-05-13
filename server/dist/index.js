@@ -89,6 +89,17 @@ app.use('/api/admin', admin_1.default);
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
 });
+// Database backup — 每天 02:00 北京时间（UTC+8）= 18:00 UTC
+node_cron_1.default.schedule('0 18 * * *', () => {
+    const { createBackup } = require('./services/backup');
+    try {
+        const result = createBackup();
+        console.log('[Backup] 自动备份完成:', result.filename, '-', (result.size / 1024).toFixed(1) + 'KB');
+    }
+    catch (err) {
+        console.error('[Backup] 自动备份失败:', err.message);
+    }
+});
 // 域名到期提醒 — 每天 9:00 北京时间（UTC+8）= 01:00 UTC
 node_cron_1.default.schedule('0 1 * * *', () => {
     (0, reminder_1.checkExpirationReminders)();
