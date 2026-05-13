@@ -123,16 +123,18 @@
             </span>
           </template>
           <template v-if="column.key === 'ssl_expiry'">
-            <span :style="{ color: getSslColor(record.ssl_expiry) }">
-              {{ record.ssl_expiry ? formatSslDate(record.ssl_expiry) : '-' }}
+            <span v-if="record.ssl_expiry" :style="{ color: getSslColor(record.ssl_expiry) }">
+              {{ formatSslDate(record.ssl_expiry) }}
             </span>
+            <a-tag v-else color="red" size="small">无效</a-tag>
           </template>
           <template v-if="column.key === 'purpose'">
             <a-tag v-if="record.purpose" color="blue">{{ record.purpose }}</a-tag>
           </template>
           <template v-if="column.key === 'dns'">
-            <a-tag v-if="record.dns_records && record.dns_records.length > 2" color="green" size="small">已检测</a-tag>
-            <a-tag v-else color="default" size="small">未检测</a-tag>
+            <span v-if="record.dns_ns_provider" style="font-size:12px;color:#1677ff">{{ record.dns_ns_provider }}</span>
+            <span v-else-if="record.dns_ns_server" style="font-size:12px;font-family:monospace;color:#8c8c8c">{{ record.dns_ns_server }}</span>
+            <span v-else style="color:#8c8c8c;font-size:12px">-</span>
           </template>
           <template v-if="column.key === 'action'">
             <a-button type="link" size="small" @click.stop="viewDetail(record)">详情</a-button>

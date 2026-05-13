@@ -12,6 +12,7 @@ import AntCompanies from '../views/AntCompanies.vue'
 import AntCompanyDetail from '../views/AntCompanyDetail.vue'
 
 import AntApprovals from '../views/AntApprovals.vue'
+import AntDnsProviders from '../views/AntDnsProviders.vue'
 
 const routes = [
   { path: '/login', component: AntLogin, name: 'Login' },
@@ -29,6 +30,7 @@ const routes = [
       { path: 'companies', component: AntCompanies, name: 'Companies', meta: { requiresAuth: true } },
       { path: 'companies/:id', component: AntCompanyDetail, name: 'CompanyDetail', meta: { requiresAuth: true } },
       { path: 'approvals', component: AntApprovals, name: 'Approvals', meta: { requiresAuth: true } },
+      { path: 'dns-providers', component: AntDnsProviders, name: 'DnsProviders', meta: { requiresAuth: true } },
     ],
   },
 ]

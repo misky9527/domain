@@ -88,6 +88,14 @@ function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_reminder_log_lookup ON reminder_log(domain_id, threshold);
+
+    CREATE TABLE IF NOT EXISTS dns_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Add columns for users table if upgrading from old schema
@@ -96,9 +104,19 @@ function initSchema() {
   addColumnIfNotExists('users', 'permissions', 'TEXT DEFAULT \'\'');
   addColumnIfNotExists('users', 'status', 'TEXT DEFAULT \'approved\'');
   addColumnIfNotExists('domains', 'dns_records', 'TEXT DEFAULT \'\'');
+  addColumnIfNotExists('domains', 'dns_ns_server', 'TEXT DEFAULT \'\'');
+  addColumnIfNotExists('domains', 'dns_ns_provider', 'TEXT DEFAULT \'\'');
 
   // Migrate existing admin role → super_admin
   db.prepare("UPDATE users SET role = 'super_admin' WHERE role = 'admin'").run();
+
+  // Backfill dns_ns_server/dns_ns_provider for domains with dns_records but no NS info
+  db.prepare(
+    "UPDATE domains SET dns_ns_server = '' WHERE dns_ns_server IS NULL"
+  ).run();
+  db.prepare(
+    "UPDATE domains SET dns_ns_provider = '' WHERE dns_ns_provider IS NULL"
+  ).run();
 }
 
 export default getDb;

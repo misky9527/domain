@@ -8,8 +8,10 @@ import groupRoutes from './routes/groups';
 import settingsRoutes from './routes/settings';
 import companiesRoutes from './routes/companies';
 import dashboardRoutes from './routes/dashboard';
+import dnsProvidersRoutes from './routes/dns-providers';
 import { sendTelegramMessage, formatDomainReport } from './services/telegram';
 import { checkExpirationReminders } from './services/reminder';
+import { setDbGetter } from './services/dns';
 
 const app = express();
 const PORT = 3001;
@@ -33,6 +35,7 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/companies', companiesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/dns-providers', dnsProvidersRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -61,8 +64,11 @@ cron.schedule('0 4 * * *', () => {
 // Start server
 app.listen(PORT, () => {
   console.log(`DomainKeeper server running on http://localhost:${PORT}`);
-  // Init DB
+  // Init DB and inject into dns service
   getDb();
+  setDbGetter(() => {
+    try { return getDb(); } catch { return null; }
+  });
 });
 
 export default app;

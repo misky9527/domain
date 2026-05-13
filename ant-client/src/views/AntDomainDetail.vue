@@ -70,6 +70,26 @@
       </a-descriptions>
     </a-card>
 
+    <!-- DNS 指向 -->
+    <a-card v-if="domain" style="margin-bottom: 20px">
+      <template #title>
+        <div style="display: flex; justify-content: space-between">
+          <span>DNS 指向</span>
+          <a-button size="small" @click="refreshDns" :loading="dnsLoading">刷新</a-button>
+        </div>
+      </template>
+      <a-descriptions v-if="dnsNsServer" :column="2" bordered size="small">
+        <a-descriptions-item label="NS 服务器">
+          <span style="font-family:monospace">{{ dnsNsServer }}</span>
+        </a-descriptions-item>
+        <a-descriptions-item label="服务商">
+          <a-tag v-if="dnsNsProvider" color="blue">{{ dnsNsProvider }}</a-tag>
+          <span v-else style="color:#8c8c8c">未知</span>
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-empty v-else description="暂未检测 DNS 指向，点击右上角刷新" />
+    </a-card>
+
     <!-- DNS Records -->
     <a-card style="margin-bottom: 20px">
       <template #title>
@@ -127,6 +147,8 @@ const editMode = ref(false)
 const saving = ref(false)
 const dnsRecords = ref([])
 const dnsLoading = ref(false)
+const dnsNsServer = ref('')
+const dnsNsProvider = ref('')
 const sslInfo = ref<any>(null)
 const sslLoading = ref(false)
 
@@ -150,6 +172,8 @@ onMounted(async () => {
   try {
     const res = await api.get(`/domains/${route.params.id}`)
     domain.value = res.data.domain
+    dnsNsServer.value = res.data.domain.dns_ns_server || ''
+    dnsNsProvider.value = res.data.domain.dns_ns_provider || ''
     Object.assign(editForm, res.data.domain)
   } catch {
     message.error('加载域名信息失败')
@@ -185,6 +209,10 @@ async function refreshDns() {
   try {
     const res = await api.get(`/domains/${route.params.id}/dns`)
     dnsRecords.value = res.data.records
+    // Reload domain to get updated NS info
+    const domainRes = await api.get(`/domains/${route.params.id}`)
+    dnsNsServer.value = domainRes.data.domain.dns_ns_server || ''
+    dnsNsProvider.value = domainRes.data.domain.dns_ns_provider || ''
   } catch {} finally {
     dnsLoading.value = false
   }

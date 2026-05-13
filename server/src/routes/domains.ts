@@ -3,7 +3,7 @@ import { getDb } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
-import { queryDnsRecords } from '../services/dns';
+import { queryDnsRecords, queryNsRecords, extractNsInfo } from '../services/dns';
 import { checkSsl } from '../services/ssl';
 import { manualExpiryCheck } from '../services/reminder';
 
@@ -59,6 +59,8 @@ router.get('/', (req: AuthRequest, res: Response) => {
   sql += ' LIMIT ? OFFSET ?';
   params.push(ps, (p - 1) * ps);
 
+  // Don't need to parse dns_records for NS info anymore;
+  // dns_ns_server and dns_ns_provider are stored as DB columns.
   const domains = db.prepare(sql).all(...params);
   res.json({ domains, total, page: p, page_size: ps });
 });
@@ -295,9 +297,14 @@ router.put('/:id/refresh-dns', requirePermission('domain:refresh-dns'), async (r
   }
 
   try {
-    const records = await queryDnsRecords(domain.name);
-    db.prepare('UPDATE domains SET dns_records = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(JSON.stringify(records), req.params.id);
+    const [records, nsRecords] = await Promise.all([
+      queryDnsRecords(domain.name),
+      queryNsRecords(domain.name),
+    ]);
+    // Extract NS provider info
+    const nsInfo = extractNsInfo(nsRecords);
+    db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
     res.json({ records });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -358,10 +365,14 @@ router.get('/:id/dns', requirePermission('domain:view'), async (req: AuthRequest
     return;
   }
   try {
-    const records = await queryDnsRecords(domain.name);
+    const [records, nsRecords] = await Promise.all([
+      queryDnsRecords(domain.name),
+      queryNsRecords(domain.name),
+    ]);
     // Save to database for caching
-    db.prepare('UPDATE domains SET dns_records = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(JSON.stringify(records), req.params.id);
+    const nsInfo = extractNsInfo(nsRecords);
+    db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
     res.json({ records });
   } catch (err: any) {
     // Fall back to cached DNS records
@@ -451,11 +462,15 @@ router.post('/refresh-all', async (req: AuthRequest, res: Response) => {
         }
         res.whois = true;
       } catch {}
-      // 3. DNS
+      // 3. DNS (records + NS provider)
       try {
-        const dnsRecords = await queryDnsRecords(d.name);
-        db.prepare('UPDATE domains SET dns_records = ? WHERE id = ?')
-          .run(JSON.stringify(dnsRecords), d.id);
+        const [dnsRecords, nsRecords] = await Promise.all([
+          queryDnsRecords(d.name),
+          queryNsRecords(d.name),
+        ]);
+        const nsInfo = extractNsInfo(nsRecords);
+        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+          .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
         res.dns = true;
       } catch {}
       return res;

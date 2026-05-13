@@ -26,6 +26,7 @@
           <a-menu-item key="/settings"><SettingOutlined /><span>设置</span></a-menu-item>
           <a-menu-item v-if="isAdmin" key="/companies"><BankOutlined /><span>公司管理</span></a-menu-item>
           <a-menu-item v-if="isSuperAdmin" key="/approvals"><CheckCircleOutlined /><span>注册审核</span></a-menu-item>
+          <a-menu-item v-if="isSuperAdmin" key="/dns-providers"><GlobalOutlined /><span>DNS 服务商</span></a-menu-item>
         </a-menu>
       </a-layout-sider>
 
@@ -88,7 +89,7 @@ import { useRouter, useRoute } from 'vue-router'
 import {
   DashboardOutlined, FolderOutlined,
   SettingOutlined, BankOutlined, MenuUnfoldOutlined, MenuFoldOutlined,
-  UserOutlined, DownOutlined, LogoutOutlined, CheckCircleOutlined,
+  UserOutlined, DownOutlined, LogoutOutlined, CheckCircleOutlined, GlobalOutlined,
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -105,6 +106,7 @@ const tabTitles: Record<string, string> = {
   '/settings': '设置',
   '/companies': '公司管理',
   '/approvals': '注册审核',
+  '/dns-providers': 'DNS 服务商',
 }
 
 function getTabTitle(path: string): string {
