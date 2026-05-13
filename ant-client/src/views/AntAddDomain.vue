@@ -127,7 +127,7 @@ onMounted(async () => {
   } catch {}
 })
 
-function parseDnsRecords(text: string): Array<{ type: string; name: string; data: string }> {
+function parseDnsRecords(text: string, domain: string): Array<{ type: string; name: string; data: string }> {
   if (!text.trim()) return []
   return text.split('\n')
     .map(line => line.trim())
@@ -135,9 +135,13 @@ function parseDnsRecords(text: string): Array<{ type: string; name: string; data
     .map(line => {
       const parts = line.split(/\s+/)
       if (parts.length < 3) return null
+      // @ 转回完整域名
+      let name = parts[1]
+      if (name === '@') name = domain.toLowerCase()
+      else name = name + '.' + domain.toLowerCase()
       return {
         type: parts[0].toUpperCase(),
-        name: parts[1],
+        name: name,
         data: parts.slice(2).join(' '),
       }
     })
@@ -161,10 +165,20 @@ async function queryWhois() {
     saveForm.dns_ns_server = data.ns_server || ''
     saveForm.dns_ns_provider = data.ns_provider || ''
 
-    // 解析记录
+    // 解析记录 — 格式化显示
     if (data.dns_records && data.dns_records.length > 0) {
+      const cleanDomain = form.name.toLowerCase().replace(/^\.+|\.+$/g, '')
       saveForm.dns_records_text = data.dns_records
-        .map((r: any) => `${r.type} ${r.name} ${r.data}`)
+        .map((r: any) => {
+          let host = r.name.replace(/\.$/, '').toLowerCase()
+          // 根域名用 @，子域名只显示前缀
+          if (host === cleanDomain || host === cleanDomain + '.') {
+            host = '@'
+          } else if (host.endsWith('.' + cleanDomain)) {
+            host = host.slice(0, -(cleanDomain.length + 1))
+          }
+          return `${r.type} ${host} ${r.data}`
+        })
         .join('\n')
     }
 
@@ -181,7 +195,7 @@ async function queryWhois() {
 async function saveDomain() {
   saving.value = true
   try {
-    const records = parseDnsRecords(saveForm.dns_records_text)
+    const records = parseDnsRecords(saveForm.dns_records_text, form.name)
     await api.post('/domains', {
       name: form.name,
       registrar: saveForm.registrar,
