@@ -19,7 +19,17 @@
           </template>
           <template v-if="column.key === 'action'">
             <a-button type="link" size="small" @click="editGroup(record)">编辑</a-button>
-            <a-button type="link" danger size="small" @click="deleteGroup(record)">删除</a-button>
+            <a-popconfirm
+              v-if="!record.is_default"
+              title="确定删除此分组？"
+              @confirm="deleteGroup(record)"
+              ok-text="删除"
+              ok-type="danger"
+              cancel-text="取消"
+            >
+              <a-button type="link" danger size="small">删除</a-button>
+            </a-popconfirm>
+            <a-tag v-else color="default" size="small">默认</a-tag>
           </template>
         </template>
       </a-table>
@@ -113,16 +123,11 @@ async function saveGroup() {
 
 async function deleteGroup(row: any) {
   try {
-    await Modal.confirm({
-      title: '确认删除',
-      content: `确定删除分组「${row.name}」？分组内的域名将变为未分组。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-    })
     await api.delete(`/groups/${row.id}`)
     message.success('删除成功')
     loadGroups()
-  } catch {}
+  } catch (err: any) {
+    message.error(err.response?.data?.error || '删除失败')
+  }
 }
 </script>

@@ -1,6 +1,44 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const multer_1 = __importDefault(require("multer"));
+const XLSX = __importStar(require("xlsx"));
 const db_1 = require("../db");
 const auth_1 = require("../middleware/auth");
 const permission_1 = require("../middleware/permission");
@@ -54,6 +92,8 @@ router.get('/', (req, res) => {
     const ps = Math.min(100, Math.max(1, Number(page_size)));
     sql += ' LIMIT ? OFFSET ?';
     params.push(ps, (p - 1) * ps);
+    // Don't need to parse dns_records for NS info anymore;
+    // dns_ns_server and dns_ns_provider are stored as DB columns.
     const domains = db.prepare(sql).all(...params);
     res.json({ domains, total, page: p, page_size: ps });
 });
@@ -261,9 +301,14 @@ router.put('/:id/refresh-dns', (0, permission_1.requirePermission)('domain:refre
         return;
     }
     try {
-        const records = await (0, dns_1.queryDnsRecords)(domain.name);
-        db.prepare('UPDATE domains SET dns_records = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(JSON.stringify(records), req.params.id);
+        const [records, nsRecords] = await Promise.all([
+            (0, dns_1.queryDnsRecords)(domain.name),
+            (0, dns_1.queryNsRecords)(domain.name),
+        ]);
+        // Extract NS provider info
+        const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
         res.json({ records });
     }
     catch (err) {
@@ -319,10 +364,14 @@ router.get('/:id/dns', (0, permission_1.requirePermission)('domain:view'), async
         return;
     }
     try {
-        const records = await (0, dns_1.queryDnsRecords)(domain.name);
+        const [records, nsRecords] = await Promise.all([
+            (0, dns_1.queryDnsRecords)(domain.name),
+            (0, dns_1.queryNsRecords)(domain.name),
+        ]);
         // Save to database for caching
-        db.prepare('UPDATE domains SET dns_records = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(JSON.stringify(records), req.params.id);
+        const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+        db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);
         res.json({ records });
     }
     catch (err) {
@@ -410,11 +459,15 @@ router.post('/refresh-all', async (req, res) => {
                 res.whois = true;
             }
             catch { }
-            // 3. DNS
+            // 3. DNS (records + NS provider)
             try {
-                const dnsRecords = await (0, dns_1.queryDnsRecords)(d.name);
-                db.prepare('UPDATE domains SET dns_records = ? WHERE id = ?')
-                    .run(JSON.stringify(dnsRecords), d.id);
+                const [dnsRecords, nsRecords] = await Promise.all([
+                    (0, dns_1.queryDnsRecords)(d.name),
+                    (0, dns_1.queryNsRecords)(d.name),
+                ]);
+                const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+                db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+                    .run(JSON.stringify(dnsRecords), nsInfo?.server || '', nsInfo?.provider || '', d.id);
                 res.dns = true;
             }
             catch { }
@@ -441,6 +494,115 @@ router.post('/refresh-all', async (req, res) => {
         success,
         failed,
         message: `检测完成：成功 ${success}，失败 ${failed}，共 ${domains.length} 个域名`,
+    });
+});
+// Configure multer for file upload (store in memory)
+const upload = (0, multer_1.default)({
+    storage: multer_1.default.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+    fileFilter: (_req, file, cb) => {
+        const allowed = [
+            'text/csv',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ];
+        // Also allow by extension
+        const ext = file.originalname.split('.').pop()?.toLowerCase();
+        if (allowed.includes(file.mimetype) || ['csv', 'xls', 'xlsx'].includes(ext || '')) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error('仅支持 CSV/Excel 文件 (.csv / .xls / .xlsx)'));
+        }
+    },
+});
+// Batch upload domains from Excel/CSV file
+router.post('/batch-upload', (0, permission_1.requirePermission)('domain:add'), upload.single('file'), (req, res) => {
+    if (!req.file) {
+        res.status(400).json({ error: '请上传文件' });
+        return;
+    }
+    const db = (0, db_1.getDb)();
+    const userId = req.user.id;
+    let rows;
+    try {
+        const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = wb.SheetNames[0];
+        const sheet = wb.Sheets[sheetName];
+        rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    }
+    catch (err) {
+        res.status(400).json({ error: '文件解析失败：' + err.message });
+        return;
+    }
+    if (rows.length < 2) {
+        res.status(400).json({ error: '文件至少需要包含表头和数据行' });
+        return;
+    }
+    // Skip header row
+    const dataRows = rows.slice(1).filter((r) => r[0] && String(r[0]).trim());
+    if (dataRows.length === 0) {
+        res.status(400).json({ error: '无有效数据行' });
+        return;
+    }
+    const results = [];
+    const seen = new Set();
+    const insert = db.prepare('INSERT OR IGNORE INTO domains (user_id, group_id, name, purpose) VALUES (?, ?, ?, ?)');
+    const cleanDomain = (name) => {
+        let s = name.replace(/^https?:\/\//i, '').replace(/[\/:].*$/, '').replace(/\s+/g, '').replace(/[^a-zA-Z0-9.\-_]/g, '').toLowerCase();
+        if (!s || !s.includes('.'))
+            return null;
+        const parts = s.split('.');
+        if (parts.length > 2)
+            s = parts.slice(parts.length - 2).join('.');
+        return s;
+    };
+    const defaultGroupId = (0, db_1.getOrCreateDefaultGroup)(userId);
+    for (const row of dataRows) {
+        const rawDomain = String(row[0] || '').trim();
+        const purpose = String(row[1] || '').trim();
+        const groupName = String(row[2] || '').trim();
+        const domain = cleanDomain(rawDomain);
+        if (!domain) {
+            results.push({ domain: rawDomain || '(空)', purpose, group: groupName, success: false, error: '格式无效' });
+            continue;
+        }
+        if (seen.has(domain)) {
+            results.push({ domain, purpose, group: groupName, success: false, error: '重复域名' });
+            continue;
+        }
+        seen.add(domain);
+        // Determine group: match by name → create if not exists → default
+        let groupId = defaultGroupId;
+        if (groupName) {
+            try {
+                groupId = (0, db_1.getOrCreateGroup)(userId, groupName);
+            }
+            catch {
+                // fallback to default
+            }
+        }
+        try {
+            const result = insert.run(userId, groupId, domain, purpose);
+            if (result.changes > 0) {
+                results.push({ domain, purpose, group: groupName, success: true });
+            }
+            else {
+                results.push({ domain, purpose, group: groupName, success: false, error: '域名已存在' });
+            }
+        }
+        catch (err) {
+            results.push({ domain, purpose, group: groupName, success: false, error: err.message });
+        }
+    }
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+    res.json({
+        results,
+        total: results.length,
+        success: successCount,
+        failed: failCount,
+        message: `导入完成：成功 ${successCount}，失败 ${failCount}，共 ${results.length} 条`,
     });
 });
 // Batch assign group

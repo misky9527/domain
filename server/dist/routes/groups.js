@@ -64,6 +64,16 @@ router.put('/:id', (req, res) => {
 // Delete group
 router.delete('/:id', (req, res) => {
     const db = (0, db_1.getDb)();
+    // Prevent deletion of default group
+    const group = db.prepare('SELECT is_default FROM domain_groups WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!group) {
+        res.status(404).json({ error: '分组不存在' });
+        return;
+    }
+    if (group.is_default) {
+        res.status(403).json({ error: '默认分组不可删除' });
+        return;
+    }
     // Set domains in this group to null
     db.prepare('UPDATE domains SET group_id = NULL WHERE group_id = ? AND user_id = ?').run(req.params.id, req.user.id);
     const result = db.prepare('DELETE FROM domain_groups WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);

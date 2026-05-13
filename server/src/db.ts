@@ -106,6 +106,7 @@ function initSchema() {
   addColumnIfNotExists('domains', 'dns_records', 'TEXT DEFAULT \'\'');
   addColumnIfNotExists('domains', 'dns_ns_server', 'TEXT DEFAULT \'\'');
   addColumnIfNotExists('domains', 'dns_ns_provider', 'TEXT DEFAULT \'\'');
+  addColumnIfNotExists('domain_groups', 'is_default', 'INTEGER DEFAULT 0');
 
   // Migrate existing admin role → super_admin
   db.prepare("UPDATE users SET role = 'super_admin' WHERE role = 'admin'").run();
@@ -117,6 +118,28 @@ function initSchema() {
   db.prepare(
     "UPDATE domains SET dns_ns_provider = '' WHERE dns_ns_provider IS NULL"
   ).run();
+}
+
+/**
+ * Get or create the default group for a user.
+ */
+export function getOrCreateDefaultGroup(userId: number): number {
+  const db = getDb();
+  const existing = db.prepare('SELECT id FROM domain_groups WHERE user_id = ? AND is_default = 1').get(userId) as any;
+  if (existing) return existing.id;
+  const result = db.prepare('INSERT INTO domain_groups (user_id, name, is_default) VALUES (?, ?, 1)').run(userId, '默认组');
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * Get or create a group by name for a user.
+ */
+export function getOrCreateGroup(userId: number, name: string): number {
+  const db = getDb();
+  const existing = db.prepare('SELECT id FROM domain_groups WHERE user_id = ? AND name = ?').get(userId, name) as any;
+  if (existing) return existing.id;
+  const result = db.prepare('INSERT INTO domain_groups (user_id, name) VALUES (?, ?)').run(userId, name);
+  return result.lastInsertRowid as number;
 }
 
 export default getDb;

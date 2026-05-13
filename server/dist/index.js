@@ -13,8 +13,10 @@ const groups_1 = __importDefault(require("./routes/groups"));
 const settings_1 = __importDefault(require("./routes/settings"));
 const companies_1 = __importDefault(require("./routes/companies"));
 const dashboard_1 = __importDefault(require("./routes/dashboard"));
+const dns_providers_1 = __importDefault(require("./routes/dns-providers"));
 const telegram_1 = require("./services/telegram");
 const reminder_1 = require("./services/reminder");
+const dns_1 = require("./services/dns");
 const app = (0, express_1.default)();
 const PORT = 3001;
 app.use((0, cors_1.default)());
@@ -34,6 +36,7 @@ app.use('/api/groups', groups_1.default);
 app.use('/api/settings', settings_1.default);
 app.use('/api/companies', companies_1.default);
 app.use('/api/dashboard', dashboard_1.default);
+app.use('/api/dns-providers', dns_providers_1.default);
 // Health check
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
@@ -57,8 +60,16 @@ node_cron_1.default.schedule('0 4 * * *', () => {
 // Start server
 app.listen(PORT, () => {
     console.log(`DomainKeeper server running on http://localhost:${PORT}`);
-    // Init DB
+    // Init DB and inject into dns service
     (0, db_1.getDb)();
+    (0, dns_1.setDbGetter)(() => {
+        try {
+            return (0, db_1.getDb)();
+        }
+        catch {
+            return null;
+        }
+    });
 });
 exports.default = app;
 //# sourceMappingURL=index.js.map

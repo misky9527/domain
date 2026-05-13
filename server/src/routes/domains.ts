@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
-import { getDb } from '../db';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
+import { getDb, getOrCreateDefaultGroup, getOrCreateGroup } from '../db';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
@@ -495,6 +497,125 @@ router.post('/refresh-all', async (req: AuthRequest, res: Response) => {
     success,
     failed,
     message: `检测完成：成功 ${success}，失败 ${failed}，共 ${domains.length} 个域名`,
+  });
+});
+
+// Configure multer for file upload (store in memory)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    // Also allow by extension
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    if (allowed.includes(file.mimetype) || ['csv', 'xls', 'xlsx'].includes(ext || '')) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 CSV/Excel 文件 (.csv / .xls / .xlsx)'));
+    }
+  },
+});
+
+// Batch upload domains from Excel/CSV file
+router.post('/batch-upload', requirePermission('domain:add'), upload.single('file'), (req: AuthRequest, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: '请上传文件' });
+    return;
+  }
+
+  const db = getDb();
+  const userId = req.user!.id;
+  let rows: any[];
+
+  try {
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
+    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  } catch (err: any) {
+    res.status(400).json({ error: '文件解析失败：' + err.message });
+    return;
+  }
+
+  if (rows.length < 2) {
+    res.status(400).json({ error: '文件至少需要包含表头和数据行' });
+    return;
+  }
+
+  // Skip header row
+  const dataRows = rows.slice(1).filter((r: any) => r[0] && String(r[0]).trim());
+  if (dataRows.length === 0) {
+    res.status(400).json({ error: '无有效数据行' });
+    return;
+  }
+
+  const results: Array<{ domain: string; purpose: string; group: string; success: boolean; error?: string }> = [];
+  const seen = new Set<string>();
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO domains (user_id, group_id, name, purpose) VALUES (?, ?, ?, ?)'
+  );
+
+  const cleanDomain = (name: string) => {
+    let s = name.replace(/^https?:\/\//i, '').replace(/[\/:].*$/, '').replace(/\s+/g, '').replace(/[^a-zA-Z0-9.\-_]/g, '').toLowerCase();
+    if (!s || !s.includes('.')) return null;
+    const parts = s.split('.');
+    if (parts.length > 2) s = parts.slice(parts.length - 2).join('.');
+    return s;
+  };
+
+  const defaultGroupId = getOrCreateDefaultGroup(userId);
+
+  for (const row of dataRows) {
+    const rawDomain = String(row[0] || '').trim();
+    const purpose = String(row[1] || '').trim();
+    const groupName = String(row[2] || '').trim();
+
+    const domain = cleanDomain(rawDomain);
+    if (!domain) {
+      results.push({ domain: rawDomain || '(空)', purpose, group: groupName, success: false, error: '格式无效' });
+      continue;
+    }
+    if (seen.has(domain)) {
+      results.push({ domain, purpose, group: groupName, success: false, error: '重复域名' });
+      continue;
+    }
+    seen.add(domain);
+
+    // Determine group: match by name → create if not exists → default
+    let groupId = defaultGroupId;
+    if (groupName) {
+      try {
+        groupId = getOrCreateGroup(userId, groupName);
+      } catch {
+        // fallback to default
+      }
+    }
+
+    try {
+      const result = insert.run(userId, groupId, domain, purpose);
+      if (result.changes > 0) {
+        results.push({ domain, purpose, group: groupName, success: true });
+      } else {
+        results.push({ domain, purpose, group: groupName, success: false, error: '域名已存在' });
+      }
+    } catch (err: any) {
+      results.push({ domain, purpose, group: groupName, success: false, error: err.message });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const failCount = results.filter(r => !r.success).length;
+
+  res.json({
+    results,
+    total: results.length,
+    success: successCount,
+    failed: failCount,
+    message: `导入完成：成功 ${successCount}，失败 ${failCount}，共 ${results.length} 条`,
   });
 });
 

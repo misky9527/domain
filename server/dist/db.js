@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDb = getDb;
+exports.getOrCreateDefaultGroup = getOrCreateDefaultGroup;
+exports.getOrCreateGroup = getOrCreateGroup;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const DB_PATH = path_1.default.join(__dirname, '..', 'data', 'domain-keeper.db');
@@ -91,6 +93,14 @@ function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_reminder_log_lookup ON reminder_log(domain_id, threshold);
+
+    CREATE TABLE IF NOT EXISTS dns_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
     // Add columns for users table if upgrading from old schema
     // (companies table was already created above if it didn't exist)
@@ -98,8 +108,36 @@ function initSchema() {
     addColumnIfNotExists('users', 'permissions', 'TEXT DEFAULT \'\'');
     addColumnIfNotExists('users', 'status', 'TEXT DEFAULT \'approved\'');
     addColumnIfNotExists('domains', 'dns_records', 'TEXT DEFAULT \'\'');
+    addColumnIfNotExists('domains', 'dns_ns_server', 'TEXT DEFAULT \'\'');
+    addColumnIfNotExists('domains', 'dns_ns_provider', 'TEXT DEFAULT \'\'');
+    addColumnIfNotExists('domain_groups', 'is_default', 'INTEGER DEFAULT 0');
     // Migrate existing admin role → super_admin
     db.prepare("UPDATE users SET role = 'super_admin' WHERE role = 'admin'").run();
+    // Backfill dns_ns_server/dns_ns_provider for domains with dns_records but no NS info
+    db.prepare("UPDATE domains SET dns_ns_server = '' WHERE dns_ns_server IS NULL").run();
+    db.prepare("UPDATE domains SET dns_ns_provider = '' WHERE dns_ns_provider IS NULL").run();
+}
+/**
+ * Get or create the default group for a user.
+ */
+function getOrCreateDefaultGroup(userId) {
+    const db = getDb();
+    const existing = db.prepare('SELECT id FROM domain_groups WHERE user_id = ? AND is_default = 1').get(userId);
+    if (existing)
+        return existing.id;
+    const result = db.prepare('INSERT INTO domain_groups (user_id, name, is_default) VALUES (?, ?, 1)').run(userId, '默认组');
+    return result.lastInsertRowid;
+}
+/**
+ * Get or create a group by name for a user.
+ */
+function getOrCreateGroup(userId, name) {
+    const db = getDb();
+    const existing = db.prepare('SELECT id FROM domain_groups WHERE user_id = ? AND name = ?').get(userId, name);
+    if (existing)
+        return existing.id;
+    const result = db.prepare('INSERT INTO domain_groups (user_id, name) VALUES (?, ?)').run(userId, name);
+    return result.lastInsertRowid;
 }
 exports.default = getDb;
 //# sourceMappingURL=db.js.map

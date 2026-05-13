@@ -2,7 +2,64 @@
   <div>
     <h2 style="margin-bottom: 20px">批量导入域名</h2>
 
+    <!-- File upload section -->
     <a-card style="margin-bottom: 20px">
+      <template #title><span>📎 上传文件导入</span></template>
+      <div style="margin-bottom:12px;color:#999;font-size:12px">
+        支持 Excel (.xlsx/.xls) 或 CSV，格式：第一列=域名，第二列=用途，第三列=分组（留空则默认组）
+      </div>
+      <a-upload-dragger
+        name="file"
+        :action="uploadUrl"
+        :headers="uploadHeaders"
+        :before-upload="onBeforeUpload"
+        @change="handleUploadChange"
+        accept=".csv,.xls,.xlsx"
+        :show-upload-list="false"
+      >
+        <p class="ant-upload-drag-icon"><InboxOutlined style="font-size:40px;color:#1677ff" /></p>
+        <p class="ant-upload-text">点击或拖拽文件到此区域上传</p>
+        <p class="ant-upload-hint">支持 .csv / .xls / .xlsx 文件，最大 5MB</p>
+      </a-upload-dragger>
+
+      <!-- Upload results -->
+      <div v-if="uploadResults.length > 0" style="margin-top:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span>
+            导入结果：
+            <a-tag color="green">成功 {{ uploadSuccess }}</a-tag>
+            <a-tag v-if="uploadFailed > 0" color="red">失败 {{ uploadFailed }}</a-tag>
+          </span>
+          <a-button type="primary" size="small" @click="finishBatch">完成</a-button>
+        </div>
+        <a-table
+          :data-source="uploadResults"
+          :columns="uploadColumns"
+          size="small"
+          :pagination="false"
+          :scroll="{ y: 300 }"
+          row-key="domain"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'domain'">
+              <span style="font-family:monospace">{{ record.domain }}</span>
+            </template>
+            <template v-if="column.key === 'group'">
+              <span v-if="record.group">{{ record.group }}</span>
+              <a-tag v-else color="default" size="small">默认组</a-tag>
+            </template>
+            <template v-if="column.key === 'success'">
+              <a-tag v-if="record.success" color="green" size="small">成功</a-tag>
+              <a-tag v-else color="red" size="small" :title="record.error">失败</a-tag>
+            </template>
+          </template>
+        </a-table>
+      </div>
+    </a-card>
+
+    <!-- Manual input section -->
+    <a-card style="margin-bottom: 20px">
+      <template #title><span>✏️ 手动输入域名</span></template>
       <a-form layout="vertical">
         <a-form-item label="域名列表">
           <a-textarea
@@ -68,7 +125,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { SearchOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, SaveOutlined, ReloadOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import api from '../utils/axios'
 import { message } from 'ant-design-vue'
 
@@ -78,6 +135,23 @@ const saving = ref(false)
 const form = reactive({ domains: '' })
 const results = ref<Array<any>>([])
 const retrying = ref(false)
+
+// File upload
+const uploadUrl = '/api/domains/batch-upload'
+const uploadHeaders = computed(() => {
+  const token = localStorage.getItem('token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+})
+const uploadResults = ref<Array<any>>([])
+const uploadSuccess = computed(() => uploadResults.value.filter(r => r.success).length)
+const uploadFailed = computed(() => uploadResults.value.filter(r => !r.success).length)
+
+const uploadColumns = [
+  { title: '域名', key: 'domain', width: 200 },
+  { title: '用途', dataIndex: 'purpose', key: 'purpose', width: 150 },
+  { title: '分组', key: 'group', width: 120 },
+  { title: '状态', key: 'success', width: 80 },
+]
 
 const failedCount = computed(() => results.value.filter(r => r.error).length)
 
@@ -90,9 +164,41 @@ const columns = [
   { title: '操作', key: 'action', width: 80 },
 ]
 
+function onBeforeUpload(file: File) {
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (!['csv', 'xls', 'xlsx'].includes(ext || '')) {
+    message.error('仅支持 CSV / Excel 文件 (.csv .xls .xlsx)')
+    return false
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    message.error('文件不能超过 5MB')
+    return false
+  }
+  return true
+}
+
+function handleUploadChange(info: any) {
+  if (info.file.status === 'done') {
+    const data = info.file.response
+    if (data.results) {
+      uploadResults.value = data.results
+      message.success(data.message || '导入完成')
+    } else if (data.error) {
+      message.error(data.error)
+    }
+  } else if (info.file.status === 'error') {
+    const err = info.file.response?.error || info.file.error?.message || '上传失败'
+    message.error(err)
+  }
+}
+
+function finishBatch() {
+  uploadResults.value = []
+  router.push('/')
+}
+
 async function queryBatch() {
   const raw = form.domains.split('\n').map((d: string) => d.trim()).filter(Boolean)
-  // Normalize + dedup
   const seen = new Set<string>()
   const domains: string[] = []
   for (const d of raw) {
@@ -134,21 +240,18 @@ function cleanDomain(d: string): string | null {
   return toRootDomain(s)
 }
 
-// Strip protocol, path, port, non-ASCII
 function rawClean(s: string): string | null {
   let r = s.replace(/^https?:\/\//i, '').replace(/[\/:].*$/, '').replace(/\s+/g, '').replace(/[^a-zA-Z0-9.\-_]/g, '')
   if (!r || !r.includes('.')) return null
   return r.toLowerCase()
 }
 
-// Strip subdomain: 123.b.com → b.com, sub.example.co.uk → example.co.uk
 function toRootDomain(d: string): string {
   const parts = d.split('.')
   if (parts.length <= 2) return d
   return parts.slice(parts.length - 2).join('.')
 }
 
-// Format: clean input without removing invalid entries (let user see what's wrong)
 function formatInput(text: string): string {
   const seen = new Set<string>()
   return text.split('\n').map((line: string) => {
@@ -165,7 +268,6 @@ function onPaste(e: ClipboardEvent) {
   e.preventDefault()
   const text = e.clipboardData?.getData('text') || ''
   const formatted = formatInput(text)
-  // Insert at cursor position
   const target = e.target as HTMLTextAreaElement
   const start = target.selectionStart
   const end = target.selectionEnd
