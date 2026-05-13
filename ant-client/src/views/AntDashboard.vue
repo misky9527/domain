@@ -132,10 +132,11 @@
             <a-tag v-if="record.purpose" color="blue">{{ record.purpose }}</a-tag>
           </template>
           <template v-if="column.key === 'dns'">
-            <template v-if="record.dns_ns_server">
-              <div style="font-size:12px;font-family:monospace;color:#333">{{ record.dns_ns_server }}</div>
-              <div v-if="record.dns_ns_provider" style="font-size:11px;color:#1677ff;margin-top:2px">{{ record.dns_ns_provider }}</div>
-            </template>
+            <span v-if="record.dns_ns_provider" style="font-size:12px;color:#1677ff">{{ record.dns_ns_provider }}</span>
+            <span v-else style="color:#8c8c8c;font-size:12px">-</span>
+          </template>
+          <template v-if="column.key === 'ns_server'">
+            <span v-if="record.dns_ns_server" style="font-size:12px;font-family:monospace;color:#333">{{ record.dns_ns_server }}</span>
             <span v-else style="color:#8c8c8c;font-size:12px">-</span>
           </template>
           <template v-if="column.key === 'action'">
@@ -236,7 +237,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onActivated, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ReloadOutlined, PlusCircleOutlined, OrderedListOutlined, BellOutlined, SyncOutlined, FolderOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import api from '../utils/axios'
@@ -275,7 +276,8 @@ const statsCards = reactive([
 const allColumns = [
   { title: '域名', dataIndex: 'name', key: 'name', width: 200 },
   { title: '公司', dataIndex: 'company_name', key: 'company_name', width: 120 },
-  { title: 'DNS', key: 'dns', width: 90 },
+  { title: 'DNS', key: 'dns', width: 100 },
+  { title: 'NS服务器', key: 'ns_server', width: 170 },
   { title: '注册商', dataIndex: 'registrar', key: 'registrar', width: 150 },
   { title: '到期时间', dataIndex: 'expiration_date', key: 'expiration_date', width: 140 },
   { title: 'SSL 到期', dataIndex: 'ssl_expiry', key: 'ssl_expiry', width: 140 },
@@ -286,7 +288,9 @@ const allColumns = [
 
 const defaultColKeys = allColumns.map(c => c.key)
 const savedKeys = localStorage.getItem('dk_cols')
-const visibleColKeys = ref<string[]>(savedKeys ? JSON.parse(savedKeys) : defaultColKeys)
+const savedArr: string[] = savedKeys ? JSON.parse(savedKeys) : []
+const mergedKeys = savedArr.length > 0 ? [...savedArr, ...defaultColKeys.filter(k => !savedArr.includes(k))] : defaultColKeys
+const visibleColKeys = ref<string[]>(mergedKeys)
 
 const columns = computed(() => allColumns.filter(c => visibleColKeys.value.includes(c.key)))
 const scrollX = computed(() => {
@@ -319,6 +323,11 @@ onMounted(() => {
   loadStats()
   loadGroups()
   loadDomains()
+})
+
+onActivated(() => {
+  loadDomains()
+  loadStats()
 })
 
 async function loadStats() {

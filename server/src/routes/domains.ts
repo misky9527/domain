@@ -63,7 +63,23 @@ router.get('/', (req: AuthRequest, res: Response) => {
 
   // Don't need to parse dns_records for NS info anymore;
   // dns_ns_server and dns_ns_provider are stored as DB columns.
-  const domains = db.prepare(sql).all(...params);
+  const domains = db.prepare(sql).all(...params).map((d: any) => {
+    // Backfill: if NS info is missing but dns_records exists, try to extract
+    if (!d.dns_ns_server && d.dns_records && d.dns_records.length > 2) {
+      try {
+        const records = JSON.parse(d.dns_records);
+        const nsInfo = extractNsInfo(records);
+        if (nsInfo) {
+          d.dns_ns_server = nsInfo.server;
+          d.dns_ns_provider = nsInfo.provider || '';
+          // Save to DB for future reads
+          db.prepare('UPDATE domains SET dns_ns_server = ?, dns_ns_provider = ? WHERE id = ?')
+            .run(nsInfo.server, nsInfo.provider || '', d.id);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+    return d;
+  });
   res.json({ domains, total, page: p, page_size: ps });
 });
 
