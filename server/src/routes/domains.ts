@@ -535,17 +535,33 @@ export const refreshAllStreamHandler = async (req: Request, res: Response) => {
   }
 
   let userId: number;
+  let userRole: string;
+  let userCompanyId: number | null;
   try {
     // JWT_SECRET imported from auth middleware
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     userId = decoded.id;
+    userRole = decoded.role;
+    userCompanyId = decoded.company_id;
   } catch {
     res.status(401).json({ error: '登录已过期' });
     return;
   }
 
   const db = getDb();
-  const domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(userId) as any[];
+  let domains: any[];
+  if (userRole === 'super_admin') {
+    // super_admin — 更新所有域名
+    domains = db.prepare('SELECT id, name FROM domains').all() as any[];
+  } else if (userCompanyId != null) {
+    // company_admin / user — 更新同公司域名
+    domains = db.prepare(
+      'SELECT d.id, d.name FROM domains d LEFT JOIN users u ON d.user_id = u.id WHERE u.company_id = ?'
+    ).all(userCompanyId) as any[];
+  } else {
+    // 兜底：只更新自己的
+    domains = db.prepare('SELECT id, name FROM domains WHERE user_id = ?').all(userId) as any[];
+  }
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
