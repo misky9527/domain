@@ -480,7 +480,9 @@ async function updateAll() {
       updating.value = false
       loadDomains()
       loadStats()
-      // 不要手动 close，等服务器自然断开
+      // 主动关闭 EventSource，防止自动重连导致无限循环
+      updateEventSource?.close()
+      updateEventSource = null
       return
     }
     // 分批进度更新（batch_done），不是每个域名都跳
