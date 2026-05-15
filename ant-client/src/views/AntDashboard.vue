@@ -494,13 +494,14 @@ async function updateAll() {
   }
 
   updateEventSource.onerror = () => {
-    // 已完成时忽略 error（服务器正常断开）
-    if (updateDone.value) return
+    // 无条件关闭 EventSource，防止浏览器自动重连
     updateEventSource?.close()
     updateEventSource = null
-    updating.value = false
-    updateDone.value = true
-    message.error('连接中断')
+    if (!updateDone.value) {
+      updating.value = false
+      updateDone.value = true
+      message.error('连接中断，请重试')
+    }
   }
 }
 
