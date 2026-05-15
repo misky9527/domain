@@ -100,7 +100,7 @@
       </template>
       <a-table
         v-if="dnsRecords.length > 0"
-        :data-source="dnsRecords"
+        :data-source="formattedDnsRecords"
         :columns="dnsColumns"
         size="small"
         :pagination="false"
@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import api from '../utils/axios'
@@ -152,6 +152,23 @@ const dnsNsProvider = ref('')
 const sslInfo = ref<any>(null)
 const sslLoading = ref(false)
 
+// 格式化 DNS 记录：名称 → 记录(根域名显示@)、TTL 空值显示0
+const formattedDnsRecords = computed(() => {
+  const rootName = domain.value?.name?.toLowerCase() || ''
+  return dnsRecords.value.map((r: any) => ({
+    ...r,
+    host: r.name
+      ? (() => {
+          const n = r.name.replace(/\.$/, '').toLowerCase()
+          if (n === rootName) return '@'
+          if (n.endsWith('.' + rootName)) return n.slice(0, -(rootName.length + 1))
+          return n
+        })()
+      : '-',
+    TTL: r.TTL ?? 0,
+  }))
+})
+
 const editForm = reactive({
   registrar: '',
   registration_date: '',
@@ -162,10 +179,10 @@ const editForm = reactive({
 })
 
 const dnsColumns = [
-  { title: '名称', dataIndex: 'name', key: 'name' },
+  { title: '记录', key: 'host', width: 120 },
   { title: '类型', dataIndex: 'type', key: 'type', width: 80 },
   { title: 'TTL', dataIndex: 'TTL', key: 'TTL', width: 80 },
-  { title: '数据', dataIndex: 'data', key: 'data' },
+  { title: '记录值', dataIndex: 'data', key: 'data' },
 ]
 
 onMounted(async () => {
@@ -226,7 +243,7 @@ async function refreshDns() {
     // Call write refresh endpoint
     const res = await api.put(`/domains/${route.params.id}/refresh-dns`)
     dnsRecords.value = res.data.records || []
-    // Reload domain to get updated NS columns
+    // Also update dns_ns_server/provider from fresh response
     const domainRes = await api.get(`/domains/${route.params.id}`)
     domain.value = domainRes.data.domain
     dnsNsServer.value = domainRes.data.domain.dns_ns_server || ''

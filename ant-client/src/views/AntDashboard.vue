@@ -142,7 +142,14 @@
             <a-tag v-if="record.purpose" color="blue">{{ record.purpose }}</a-tag>
           </template>
           <template v-if="column.key === 'dns'">
-            <span v-if="record.dns_ns_provider" style="font-size:12px;color:#1677ff">{{ record.dns_ns_provider }}</span>
+            <a-tooltip v-if="record.dns_records">
+              <template #title>
+                <div style="font-size:11px">{{ formatDnsRecords(record.dns_records, record.name) }}</div>
+              </template>
+              <span style="font-size:12px;color:#1677ff;cursor:help;border-bottom:1px dashed #1677ff">
+                {{ record.dns_ns_provider || '有记录' }}
+              </span>
+            </a-tooltip>
             <span v-else style="color:#8c8c8c;font-size:12px">-</span>
           </template>
           <template v-if="column.key === 'ns_server'">
@@ -504,6 +511,26 @@ function cancelUpdate() {
 
 function closeUpdateModal() {
   updateVisible.value = false
+}
+
+// 格式化 DNS 记录用于 tooltip 显示
+function formatDnsRecords(dnsJson: string, domainName: string): string {
+  try {
+    const records = JSON.parse(dnsJson)
+    const root = (domainName || '').toLowerCase()
+    return records
+      .filter((r: any) => ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA'].includes(r.type))
+      .slice(0, 6)
+      .map((r: any) => {
+        let host = (r.name || '').replace(/\.$/, '').toLowerCase()
+        if (host === root || host === root + '.') host = '@'
+        else if (host.endsWith('.' + root)) host = host.slice(0, -(root.length + 1))
+        return `${r.type} ${host} → ${r.data}`
+      })
+      .join('\n')
+  } catch {
+    return ''
+  }
 }
 
 async function checkExpiry() {

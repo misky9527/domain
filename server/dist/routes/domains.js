@@ -177,9 +177,74 @@ router.post('/batch-whois', async (req, res) => {
     const results = await (0, whois_1.queryBatchWhois)(domains);
     res.json({ results });
 });
+// 自动查询：Whois + DNS（NS记录 + 解析记录）一次性查完
+router.post('/auto-query', async (req, res) => {
+    const { domain } = req.body;
+    if (!domain) {
+        res.status(400).json({ error: '请提供域名' });
+        return;
+    }
+    try {
+        const [whoisInfo, nsRecords] = await Promise.all([
+            (0, whois_1.queryWhois)(domain).catch(() => null),
+            (0, dns_1.queryNsRecords)(domain).catch(() => []),
+        ]);
+        // DNS 记录：分类型查询，避免 type=ANY 被 RFC 8482 拦截
+        const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+        const rawDnsRecords = [];
+        for (const t of recordTypes) {
+            try {
+                const url = `https://dns.google/resolve?name=${domain}&type=${t}`;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 5000);
+                const res = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.Answer) {
+                        rawDnsRecords.push(...data.Answer.map((r) => ({
+                            name: r.name,
+                            type: dns_1.DNS_TYPE_MAP[r.type] || r.type,
+                            TTL: r.TTL,
+                            data: r.data,
+                        })));
+                    }
+                }
+            }
+            catch { }
+        }
+        // 过滤：只保留用户关心的记录类型
+        const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'PTR', 'CAA'];
+        const dnsRecords = rawDnsRecords.filter((r) => userTypes.includes(r.type));
+        // 提取 NS 服务器
+        const nsInfo = (0, dns_1.extractNsInfo)(nsRecords);
+        // 从 NS 服务器推断 DNS 服务商
+        let dnsProvider = '';
+        if (nsInfo?.server) {
+            // 尝试从 dns_providers 表匹配
+            try {
+                const db = (0, db_1.getDb)();
+                const provider = db.prepare("SELECT name FROM dns_providers WHERE ? LIKE '%' || REPLACE(domain, '*.', '') || '%' ORDER BY LENGTH(domain) DESC LIMIT 1").get(nsInfo.server);
+                if (provider)
+                    dnsProvider = provider.name;
+            }
+            catch { }
+        }
+        res.json({
+            domain,
+            whois: whoisInfo || {},
+            dns_records: dnsRecords,
+            ns_server: nsInfo?.server || '',
+            ns_provider: dnsProvider || nsInfo?.provider || '',
+        });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message || '查询失败' });
+    }
+});
 // Create domain (require domain:add)
 router.post('/', (0, permission_1.requirePermission)('domain:add'), async (req, res) => {
-    const { name, registrar, registration_date, expiration_date, purpose, tags, group_id } = req.body;
+    const { name, registrar, registration_date, expiration_date, purpose, tags, group_id, dns_ns_server, dns_ns_provider, dns_records } = req.body;
     if (!name) {
         res.status(400).json({ error: '域名不能为空' });
         return;
@@ -190,7 +255,8 @@ router.post('/', (0, permission_1.requirePermission)('domain:add'), async (req, 
         res.status(409).json({ error: '该域名已存在' });
         return;
     }
-    const result = db.prepare('INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(req.user.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '');
+    const recordsJson = dns_records ? JSON.stringify(dns_records) : '';
+    const result = db.prepare('INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(req.user.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '', dns_ns_server || '', dns_ns_provider || '', recordsJson);
     const domain = db.prepare('SELECT * FROM domains WHERE id = ?').get(result.lastInsertRowid);
     // Auto-check SSL in background
     if (domain) {
@@ -210,7 +276,7 @@ router.post('/batch', (0, permission_1.requirePermission)('domain:add'), async (
         return;
     }
     const db = (0, db_1.getDb)();
-    const insert = db.prepare('INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const results = [];
     const seen = new Set();
     const cleanName = (name) => {
@@ -233,7 +299,7 @@ router.post('/batch', (0, permission_1.requirePermission)('domain:add'), async (
             continue;
         }
         try {
-            const result = insert.run(req.user.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '');
+            const result = insert.run(req.user.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '', d.dns_ns_server || '', d.dns_ns_provider || '', d.dns_records || '');
             results.push({ name: name, success: result.changes > 0 });
         }
         catch (err) {

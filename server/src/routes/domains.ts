@@ -5,7 +5,7 @@ import { getDb, getOrCreateDefaultGroup, getOrCreateGroup, logOperation } from '
 import { AuthRequest, authMiddleware, JWT_SECRET } from '../middleware/auth';
 import { requirePermission, getCompanyFilter } from '../middleware/permission';
 import { queryWhois, queryBatchWhois } from '../services/whois';
-import { queryDnsRecords, queryNsRecords, extractNsInfo } from '../services/dns';
+import { queryDnsRecords, queryNsRecords, extractNsInfo, DNS_TYPE_MAP } from '../services/dns';
 import { checkSsl } from '../services/ssl';
 import { manualExpiryCheck } from '../services/reminder';
 import jwt from 'jsonwebtoken';
@@ -153,9 +153,79 @@ router.post('/batch-whois', async (req: AuthRequest, res: Response) => {
   res.json({ results });
 });
 
+// 自动查询：Whois + DNS（NS记录 + 解析记录）一次性查完
+router.post('/auto-query', async (req: AuthRequest, res: Response) => {
+  const { domain } = req.body;
+  if (!domain) {
+    res.status(400).json({ error: '请提供域名' });
+    return;
+  }
+
+  try {
+    const [whoisInfo, nsRecords] = await Promise.all([
+      queryWhois(domain).catch(() => null),
+      queryNsRecords(domain).catch(() => []),
+    ]);
+
+    // DNS 记录：分类型查询，避免 type=ANY 被 RFC 8482 拦截
+    const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+    const rawDnsRecords: any[] = [];
+    for (const t of recordTypes) {
+      try {
+        const url = `https://dns.google/resolve?name=${domain}&type=${t}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.Answer) {
+            rawDnsRecords.push(...data.Answer.map((r: any) => ({
+              name: r.name,
+              type: DNS_TYPE_MAP[r.type] || r.type,
+              TTL: r.TTL,
+              data: r.data,
+            })));
+          }
+        }
+      } catch {}
+    }
+
+    // 过滤：只保留用户关心的记录类型
+    const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'PTR', 'CAA'];
+    const dnsRecords = rawDnsRecords.filter((r: any) => userTypes.includes(r.type));
+
+    // 提取 NS 服务器
+    const nsInfo = extractNsInfo(nsRecords);
+
+    // 从 NS 服务器推断 DNS 服务商
+    let dnsProvider = '';
+    if (nsInfo?.server) {
+      // 尝试从 dns_providers 表匹配
+      try {
+        const db = getDb();
+        const provider = db.prepare(
+          "SELECT name FROM dns_providers WHERE ? LIKE '%' || REPLACE(domain, '*.', '') || '%' ORDER BY LENGTH(domain) DESC LIMIT 1"
+        ).get(nsInfo.server) as any;
+        if (provider) dnsProvider = provider.name;
+      } catch {}
+    }
+
+    res.json({
+      domain,
+      whois: whoisInfo || {},
+      dns_records: dnsRecords,
+      ns_server: nsInfo?.server || '',
+      ns_provider: dnsProvider || nsInfo?.provider || '',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || '查询失败' });
+  }
+});
+
 // Create domain (require domain:add)
 router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: Response) => {
-  const { name, registrar, registration_date, expiration_date, purpose, tags, group_id } = req.body;
+  const { name, registrar, registration_date, expiration_date, purpose, tags, group_id, dns_ns_server, dns_ns_provider, dns_records } = req.body;
   if (!name) {
     res.status(400).json({ error: '域名不能为空' });
     return;
@@ -168,9 +238,10 @@ router.post('/', requirePermission('domain:add'), async (req: AuthRequest, res: 
     return;
   }
 
+  const recordsJson = dns_records ? JSON.stringify(dns_records) : '';
   const result = db.prepare(
-    'INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.user!.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '');
+    'INSERT INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.user!.id, group_id || null, name, registrar || '', registration_date || '', expiration_date || '', purpose || '', tags || '', dns_ns_server || '', dns_ns_provider || '', recordsJson);
 
   const domain = db.prepare('SELECT * FROM domains WHERE id = ?').get(result.lastInsertRowid);
 
@@ -196,7 +267,7 @@ router.post('/batch', requirePermission('domain:add'), async (req: AuthRequest, 
 
   const db = getDb();
   const insert = db.prepare(
-    'INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO domains (user_id, group_id, name, registrar, registration_date, expiration_date, purpose, tags, dns_ns_server, dns_ns_provider, dns_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
 
   const results = [];
@@ -219,7 +290,7 @@ router.post('/batch', requirePermission('domain:add'), async (req: AuthRequest, 
       continue;
     }
     try {
-      const result = insert.run(req.user!.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '');
+      const result = insert.run(req.user!.id, d.group_id || null, name, d.registrar || '', d.registration_date || '', d.expiration_date || '', d.purpose || '', d.tags || '', d.dns_ns_server || '', d.dns_ns_provider || '', d.dns_records || '');
       results.push({ name: name, success: result.changes > 0 });
     } catch (err: any) {
       results.push({ name: name, success: false, error: err.message });
@@ -340,11 +411,36 @@ router.put('/:id/refresh-dns', requirePermission('domain:refresh-dns'), async (r
   }
 
   try {
-    const [records, nsRecords] = await Promise.all([
-      queryDnsRecords(domain.name),
-      queryNsRecords(domain.name),
-    ]);
-    // Extract NS provider info
+    // 分类型查询 DNS，避免 type=ANY 被 RFC 8482 拦截
+    const recordTypes = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME', 'SOA'];
+    const allRecords: any[] = [];
+    for (const t of recordTypes) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const url = `https://dns.google/resolve?name=${domain.name}&type=${t}`;
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.Answer) {
+            allRecords.push(...data.Answer.map((r: any) => ({
+              name: r.name,
+              type: DNS_TYPE_MAP[r.type] || r.type,
+              TTL: r.TTL,
+              data: r.data,
+            })));
+          }
+        }
+      } catch {}
+    }
+
+    // 过滤用户关心的记录类型
+    const userTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA'];
+    const records = allRecords.filter((r: any) => userTypes.includes(r.type));
+
+    // 单独查 NS 记录用于推断服务商
+    const nsRecords = await queryNsRecords(domain.name).catch(() => []);
     const nsInfo = extractNsInfo(nsRecords);
     db.prepare('UPDATE domains SET dns_records = ?, dns_ns_server = ?, dns_ns_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(JSON.stringify(records), nsInfo?.server || '', nsInfo?.provider || '', req.params.id);

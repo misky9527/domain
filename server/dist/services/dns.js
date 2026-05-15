@@ -3,14 +3,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DNS_TYPE_MAP = void 0;
 exports.setDbGetter = setDbGetter;
 exports.extractNsInfo = extractNsInfo;
 exports.queryDnsRecords = queryDnsRecords;
 exports.queryNsRecords = queryNsRecords;
 const node_fetch_1 = __importDefault(require("node-fetch"));
-const DNS_TYPE_MAP = {
-    1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 15: 'MX', 16: 'TXT',
-    28: 'AAAA', 33: 'SRV', 257: 'CAA',
+exports.DNS_TYPE_MAP = {
+    1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR',
+    13: 'HINFO', 15: 'MX', 16: 'TXT', 28: 'AAAA',
+    33: 'SRV', 41: 'OPT', 43: 'DS', 46: 'RRSIG',
+    47: 'NSEC', 48: 'DNSKEY', 257: 'CAA',
 };
 /**
  * Map NS server root domains to Chinese DNS provider names.
@@ -134,7 +137,7 @@ async function queryDnsRecords(domain) {
     }
     return data.Answer.map((r) => ({
         name: r.name,
-        type: DNS_TYPE_MAP[r.type] || r.type,
+        type: exports.DNS_TYPE_MAP[r.type] || r.type,
         TTL: r.TTL,
         data: r.data,
     }));
@@ -152,7 +155,7 @@ async function queryNsRecords(domain) {
         return [];
     return data.Answer.map((r) => ({
         name: r.name,
-        type: DNS_TYPE_MAP[r.type] || r.type,
+        type: exports.DNS_TYPE_MAP[r.type] || r.type,
         TTL: r.TTL,
         data: r.data,
     }));

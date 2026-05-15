@@ -7,9 +7,11 @@ interface DnsRecord {
   data: string;
 }
 
-const DNS_TYPE_MAP: Record<number, string> = {
-  1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 15: 'MX', 16: 'TXT',
-  28: 'AAAA', 33: 'SRV', 257: 'CAA',
+export const DNS_TYPE_MAP: Record<number, string> = {
+  1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR',
+  13: 'HINFO', 15: 'MX', 16: 'TXT', 28: 'AAAA',
+  33: 'SRV', 41: 'OPT', 43: 'DS', 46: 'RRSIG',
+  47: 'NSEC', 48: 'DNSKEY', 257: 'CAA',
 };
 
 /**
